@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}StockPulse - 주식 기술적 분석{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>StockPulse</h1>
+  <p class="subtitle">미국 &middot; 한국 주식 기술적 분석</p>
+  <p class="desc">기술지표 기반 점수, 핵심 사유, 차트, 뉴스를 한 번에 확인하세요</p>
+</section>
+
+<div class="container">
+  <!-- Page Cards -->
+  <div class="page-cards">
+    <a href="/us" class="page-card">
+      <div class="page-num">PAGE 1</div>
+      <h3>미국주식</h3>
+      <p>AAPL, NVDA, TSLA 같은 미국 티커 분석</p>
+      <span class="arrow">미국주식 분석 &rarr;</span>
+    </a>
+    <a href="/kr" class="page-card">
+      <div class="page-num">PAGE 2</div>
+      <h3>한국주식</h3>
+      <p>삼성전자, SK하이닉스, NAVER 등 이름/코드 검색</p>
+      <span class="arrow">한국주식 분석 &rarr;</span>
+    </a>
+    <a href="/compare" class="page-card">
+      <div class="page-num">PAGE 3</div>
+      <h3>종목비교</h3>
+      <p>미국/한국 종목 최대 3개 동시 비교</p>
+      <span class="arrow">종목비교 &rarr;</span>
+    </a>
+  </div>
+
+  <!-- Watchlist -->
+  <div class="watchlist card" style="margin-bottom:32px;">
+    <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:12px;">&#x2B50; 관심종목</h3>
+    <div id="homeWatchlist" class="watchlist-items"></div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="dashboard-section">
+    <h2>Today Dashboard</h2>
+    <p class="sub">주요 종목 실시간 기술 분석 요약</p>
+
+    <div class="dashboard-grid">
+      <div class="card dash-card">
+        <h3>미국 주요종목 <a href="/us">전체보기 &rarr;</a></h3>
+        <div id="dashUS">
+          <div class="loading"><div class="spinner"></div><p>불러오는 중...</p></div>
+        </div>
+      </div>
+      <div class="card dash-card">
+        <h3>한국 주요종목 <a href="/kr">전체보기 &rarr;</a></h3>
+        <div id="dashKR">
+          <div class="loading"><div class="spinner"></div><p>불러오는 중...</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  renderWatchlist('homeWatchlist', (key) => {
+    // Determine if US or KR
+    if (/^\d{6}$/.test(key)) {
+      window.location.href = '/kr?code=' + key;
+    } else {
+      window.location.href = '/us?ticker=' + key;
+    }
+  });
+  loadDashboard();
+});
+
+async function loadDashboard() {
+  try {
+    const res = await fetch('/api/dashboard');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    renderDashList('dashUS', data.us, 'us');
+    renderDashList('dashKR', data.kr, 'kr');
+  } catch (err) {
+    document.getElementById('dashUS').innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+    document.getElementById('dashKR').innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderDashList(containerId, items, type) {
+  const el = document.getElementById(containerId);
+  if (!items || items.length === 0) {
+    el.innerHTML = '<p style="color:var(--text3)">데이터 없음</p>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const key = type === 'us' ? item.ticker : item.code;
+    const link = type === 'us' ? `/us?ticker=${key}` : `/kr?code=${key}`;
+    const changeCls = getChangeClass(item.change_pct);
+    return `<a href="${link}" class="stock-item" style="text-decoration:none;color:inherit;">
+      <div class="left">
+        <span class="name">${escapeHtml(item.name)}</span>
+        <span class="ticker">${escapeHtml(key)}</span>
+      </div>
+      <div class="right">
+        ${getGradeBadge(item.grade)}
+        <span class="score" style="font-size:0.9rem;font-weight:800;">${item.score}점</span>
+        <span class="${changeCls}" style="min-width:60px;text-align:right;">${getChangeText(item.change_pct)}</span>
+      </div>
+    </a>`;
+  }).join('');
+}
+</script>
+{% endblock %}

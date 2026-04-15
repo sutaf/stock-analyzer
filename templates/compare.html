@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}종목비교 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">종목 비교</h1>
+  <p class="subtitle">미국/한국 종목을 최대 3개까지 한 번에 비교 분석</p>
+</section>
+
+<div class="container">
+  <!-- Inputs -->
+  <div class="compare-inputs">
+    <input type="text" id="input1" placeholder="종목 1 (예: AAPL)" autocomplete="off">
+    <input type="text" id="input2" placeholder="종목 2 (예: 삼성전자)" autocomplete="off">
+    <input type="text" id="input3" placeholder="종목 3 (선택사항)" autocomplete="off">
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:8px;">
+    <button class="btn btn-primary" id="compareBtn" style="flex:1;">비교하기</button>
+  </div>
+
+  <!-- Presets -->
+  <div style="margin-bottom:24px;display:flex;gap:8px;flex-wrap:wrap;">
+    <span style="font-size:0.8rem;color:var(--text3);line-height:36px;">빠른 비교:</span>
+    <button class="btn btn-secondary btn-sm" onclick="quickCompare('AAPL','MSFT','GOOGL')">빅테크</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickCompare('NVDA','AMD','INTC')">반도체(미국)</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickCompare('TSLA','F','GM')">자동차(미국)</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickCompare('005930','000660','373220')">반도체(한국)</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickCompare('035420','035720','377300')">플랫폼(한국)</button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingBox" class="loading" style="display:none;">
+    <div class="spinner"></div>
+    <p style="margin-top:12px;">비교 분석 중...</p>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBox" class="error-msg" style="display:none;"></div>
+
+  <!-- Results -->
+  <div id="resultSection" style="display:none;">
+    <!-- Comparison Chart -->
+    <div class="card" style="margin-bottom:24px;">
+      <h3 style="font-weight:700;margin-bottom:16px;">수익률 비교 차트</h3>
+      <div class="chart-container" style="padding:0;">
+        <canvas id="compareChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Score Comparison -->
+    <div class="card" style="margin-bottom:24px;">
+      <h3 style="font-weight:700;margin-bottom:16px;">점수 비교</h3>
+      <div class="chart-container" style="padding:0;">
+        <canvas id="scoreChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div class="compare-results" id="compareCards"></div>
+
+    <!-- Indicator Comparison Table -->
+    <div class="card" style="margin-top:24px;">
+      <h3 style="font-weight:700;margin-bottom:16px;">지표 비교 테이블</h3>
+      <div style="overflow-x:auto;">
+        <table class="indicator-table" id="compareTable">
+          <thead><tr id="compareTableHead"></tr></thead>
+          <tbody id="compareTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let compareChartInstance = null;
+let scoreChartInstance = null;
+
+const CHART_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444'];
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('compareBtn').addEventListener('click', doCompare);
+  document.querySelectorAll('.compare-inputs input').forEach(input => {
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doCompare(); });
+  });
+});
+
+function quickCompare(t1, t2, t3) {
+  document.getElementById('input1').value = t1;
+  document.getElementById('input2').value = t2;
+  document.getElementById('input3').value = t3 || '';
+  doCompare();
+}
+
+async function doCompare() {
+  const tickers = [
+    document.getElementById('input1').value.trim(),
+    document.getElementById('input2').value.trim(),
+    document.getElementById('input3').value.trim(),
+  ].filter(t => t);
+
+  if (tickers.length < 2) {
+    document.getElementById('errorBox').textContent = '최소 2개 종목을 입력해주세요.';
+    document.getElementById('errorBox').style.display = 'block';
+    return;
+  }
+
+  document.getElementById('loadingBox').style.display = 'block';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('resultSection').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const valid = data.results.filter(r => !r.error);
+    if (valid.length < 2) throw new Error('비교 가능한 종목이 2개 미만입니다.');
+
+    renderCompare(valid);
+    document.getElementById('resultSection').style.display = 'block';
+  } catch (err) {
+    document.getElementById('errorBox').textContent = err.message;
+    document.getElementById('errorBox').style.display = 'block';
+  } finally {
+    document.getElementById('loadingBox').style.display = 'none';
+  }
+}
+
+function renderCompare(results) {
+  // Cards
+  document.getElementById('compareCards').innerHTML = results.map((r, i) => {
+    const changeCls = getChangeClass(r.change_pct);
+    const price = r.currency === 'KRW' ? formatKRW(r.close) : '$' + formatNumber(r.close);
+    return `<div class="card" style="border-top:3px solid ${CHART_COLORS[i]};">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div>
+          <h3 style="font-weight:800;font-size:1.1rem;margin-bottom:4px;">${escapeHtml(r.name)}</h3>
+          <span style="font-size:0.82rem;color:var(--text3);">${escapeHtml(r.ticker)}</span>
+        </div>
+        ${getGradeBadge(r.grade)}
+      </div>
+
+      <div style="text-align:center;margin:20px 0;">
+        <div class="score-ring ${getScoreClass(r.score)}" style="width:80px;height:80px;font-size:1.5rem;">${r.score}</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div class="summary-item">
+          <div class="label">현재가</div>
+          <div class="value" style="font-size:1rem;">${price}</div>
+        </div>
+        <div class="summary-item">
+          <div class="label">변동률</div>
+          <div class="value ${changeCls}" style="font-size:1rem;">${getChangeText(r.change_pct)}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <h4 style="font-size:0.85rem;font-weight:700;margin-bottom:8px;color:var(--text2);">주요 사유</h4>
+        <ul class="reasons-list" style="font-size:0.82rem;">
+          ${r.reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}
+        </ul>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Return comparison chart (normalized to %)
+  renderCompareChart(results);
+  renderScoreChart(results);
+  renderCompareTable(results);
+}
+
+function renderCompareChart(results) {
+  if (compareChartInstance) compareChartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#888';
+
+  // Normalize to percentage returns
+  const datasets = results.map((r, i) => {
+    if (!r.chart || !r.chart.close) return null;
+    const base = r.chart.close.find(v => v != null) || 1;
+    const normalized = r.chart.close.map(v => v != null ? ((v - base) / base * 100) : null);
+    return {
+      label: r.name,
+      data: normalized,
+      borderColor: CHART_COLORS[i],
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false,
+    };
+  }).filter(Boolean);
+
+  const maxLen = Math.max(...results.map(r => r.chart?.dates?.length || 0));
+  const labels = results.find(r => r.chart?.dates?.length === maxLen)?.chart?.dates || [];
+
+  compareChartInstance = new Chart(document.getElementById('compareChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: textColor, font: { size: 11 } } },
+        tooltip: {
+          titleFont: { size: 11 },
+          bodyFont: { size: 11 },
+          padding: 8,
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: textColor, maxTicksLimit: 8, font: { size: 10 } }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: { size: 10 }, callback: v => v + '%' }, grid: { color: gridColor } },
+      },
+    },
+  });
+}
+
+function renderScoreChart(results) {
+  if (scoreChartInstance) scoreChartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#94a3b8' : '#888';
+
+  scoreChartInstance = new Chart(document.getElementById('scoreChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: results.map(r => r.name),
+      datasets: [{
+        label: '기술 점수',
+        data: results.map(r => r.score),
+        backgroundColor: results.map((_, i) => CHART_COLORS[i] + '88'),
+        borderColor: results.map((_, i) => CHART_COLORS[i]),
+        borderWidth: 2,
+        borderRadius: 8,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8 } },
+      scales: {
+        x: { min: 0, max: 100, ticks: { color: textColor, font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: textColor, font: { size: 12, weight: 'bold' } }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderCompareTable(results) {
+  const indicators = ['RSI', 'MACD', 'MACD_Signal', 'Stoch_K', 'Stoch_D', 'SMA20', 'SMA60', 'SMA120',
+    'BB_Upper', 'BB_Lower', 'ATR', 'ADX', 'Volume_Ratio', 'OBV'];
+
+  const thead = document.getElementById('compareTableHead');
+  thead.innerHTML = '<th>지표</th>' + results.map((r, i) =>
+    `<th style="color:${CHART_COLORS[i]}">${escapeHtml(r.name)}</th>`
+  ).join('');
+
+  const tbody = document.getElementById('compareTableBody');
+  tbody.innerHTML = indicators.map(ind => {
+    return `<tr><td style="font-weight:600;">${ind.replace(/_/g, ' ')}</td>${results.map(r => {
+      const val = r.indicators?.[ind];
+      return `<td>${val != null ? formatNumber(val, 2) : '-'}</td>`;
+    }).join('')}</tr>`;
+  }).join('');
+}
+</script>
+{% endblock %}

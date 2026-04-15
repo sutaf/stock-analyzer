@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+{% block title %}도움말 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">기술적 분석 도움말</h1>
+  <p class="subtitle">차트에 나타나는 지표들의 의미와 해석 방법을 알아보세요</p>
+</section>
+
+<div class="container">
+
+  <!-- TOC -->
+  <div class="card" style="margin-bottom:32px;">
+    <h3 style="font-weight:700;margin-bottom:12px;">목차</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
+      <a href="#sma" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">1. 이동평균선 (SMA)</a>
+      <a href="#bb" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">2. 볼린저밴드 (BB)</a>
+      <a href="#rsi" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">3. RSI</a>
+      <a href="#macd" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">4. MACD</a>
+      <a href="#stoch" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">5. 스토캐스틱</a>
+      <a href="#volume" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">6. 거래량 분석</a>
+      <a href="#adx" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">7. ADX</a>
+      <a href="#fib" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">8. 피보나치</a>
+      <a href="#patterns" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">9. 캔들 패턴</a>
+      <a href="#scoring" style="padding:8px 12px;background:var(--bg3);border-radius:var(--radius-sm);font-size:0.9rem;">10. 점수 산정</a>
+    </div>
+  </div>
+
+  <!-- SMA -->
+  <div class="card" style="margin-bottom:24px;" id="sma">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">1. 이동평균선 (SMA - Simple Moving Average)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+        <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;">
+          일정 기간 동안의 종가 평균을 연결한 선입니다. 주가의 추세 방향과 지지/저항 역할을 합니다.
+        </p>
+        <ul style="font-size:0.88rem;color:var(--text2);margin:12px 0;padding-left:20px;line-height:2;">
+          <li><strong>SMA 5/10</strong> - 단기 추세 (1~2주)</li>
+          <li><strong>SMA 20</strong> - 중단기 추세 (1개월)</li>
+          <li><strong>SMA 60</strong> - 중기 추세 (분기)</li>
+          <li><strong>SMA 120</strong> - 장기 추세 (반기)</li>
+        </ul>
+        <h4 style="font-weight:700;margin:16px 0 8px;">매매 신호</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+            <strong>골든크로스 (매수)</strong>: 단기 이평선이 장기 이평선을 아래에서 위로 돌파
+          </div>
+          <div style="padding:10px 14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+            <strong>데드크로스 (매도)</strong>: 단기 이평선이 장기 이평선을 위에서 아래로 돌파
+          </div>
+          <div style="padding:10px 14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;">
+            <strong>정배열 (강세)</strong>: SMA5 > SMA20 > SMA60 > SMA120 순서로 배열
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="chart-container" style="height:280px;"><canvas id="smaChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BB -->
+  <div class="card" style="margin-bottom:24px;" id="bb">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">2. 볼린저밴드 (Bollinger Bands)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+        <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;">
+          20일 이동평균선을 중심으로 표준편차의 2배를 상/하단으로 그린 밴드입니다. 주가의 변동성과 과매수/과매도를 판단합니다.
+        </p>
+        <ul style="font-size:0.88rem;color:var(--text2);margin:12px 0;padding-left:20px;line-height:2;">
+          <li><strong>상단밴드</strong> = SMA20 + (2 x 표준편차)</li>
+          <li><strong>중간밴드</strong> = SMA20</li>
+          <li><strong>하단밴드</strong> = SMA20 - (2 x 표준편차)</li>
+        </ul>
+        <h4 style="font-weight:700;margin:16px 0 8px;">매매 신호</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+            <strong>하단 터치 (매수 고려)</strong>: 주가가 하단밴드 근처에서 반등할 때
+          </div>
+          <div style="padding:10px 14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+            <strong>상단 터치 (매도 고려)</strong>: 주가가 상단밴드를 터치하며 저항받을 때
+          </div>
+          <div style="padding:10px 14px;background:#fef9c3;border-radius:8px;font-size:0.85rem;color:#ca8a04;">
+            <strong>밴드 수축 (스퀴즈)</strong>: 밴드 폭이 좁아지면 큰 변동 임박 신호
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="chart-container" style="height:280px;"><canvas id="bbChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RSI -->
+  <div class="card" style="margin-bottom:24px;" id="rsi">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">3. RSI (Relative Strength Index)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+        <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;">
+          일정 기간(보통 14일) 동안의 상승폭과 하락폭 비율로 계산하는 모멘텀 지표입니다. 0~100 사이의 값을 가집니다.
+        </p>
+        <h4 style="font-weight:700;margin:16px 0 8px;">구간별 해석</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+            <strong>RSI &lt; 30 (과매도)</strong>: 과도한 매도로 반등 가능성 높음. 매수 신호.
+          </div>
+          <div style="padding:10px 14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;">
+            <strong>RSI 30~70 (중립)</strong>: 추세를 따라가는 구간. 다른 지표와 함께 판단.
+          </div>
+          <div style="padding:10px 14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+            <strong>RSI &gt; 70 (과매수)</strong>: 과도한 매수로 조정 가능성 높음. 매도 신호.
+          </div>
+          <div style="padding:10px 14px;background:#fef9c3;border-radius:8px;font-size:0.85rem;color:#ca8a04;">
+            <strong>다이버전스</strong>: 주가는 신고가인데 RSI가 낮아지면 하락 전환 신호
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="chart-container" style="height:280px;"><canvas id="rsiChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MACD -->
+  <div class="card" style="margin-bottom:24px;" id="macd">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">4. MACD (Moving Average Convergence Divergence)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+        <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;">
+          12일 EMA와 26일 EMA의 차이(MACD 선)와 그것의 9일 EMA(시그널 선)로 추세 전환을 포착합니다.
+        </p>
+        <ul style="font-size:0.88rem;color:var(--text2);margin:12px 0;padding-left:20px;line-height:2;">
+          <li><strong>MACD선</strong> = EMA12 - EMA26</li>
+          <li><strong>시그널선</strong> = MACD의 9일 EMA</li>
+          <li><strong>히스토그램</strong> = MACD - 시그널 (막대)</li>
+        </ul>
+        <h4 style="font-weight:700;margin:16px 0 8px;">매매 신호</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+            <strong>골든크로스 (매수)</strong>: MACD선이 시그널선을 상향 돌파
+          </div>
+          <div style="padding:10px 14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+            <strong>데드크로스 (매도)</strong>: MACD선이 시그널선을 하향 돌파
+          </div>
+          <div style="padding:10px 14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;">
+            <strong>제로선 돌파</strong>: MACD가 0을 상향 돌파하면 상승 추세 확인
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="chart-container" style="height:280px;"><canvas id="macdChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stochastic -->
+  <div class="card" style="margin-bottom:24px;" id="stoch">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">5. 스토캐스틱 (Stochastic Oscillator)</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <div>
+        <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+        <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;">
+          현재 종가가 최근 14일간의 가격 범위에서 어느 위치에 있는지를 0~100으로 나타냅니다.
+        </p>
+        <ul style="font-size:0.88rem;color:var(--text2);margin:12px 0;padding-left:20px;line-height:2;">
+          <li><strong>%K</strong> = (종가 - 14일 최저) / (14일 최고 - 14일 최저) x 100</li>
+          <li><strong>%D</strong> = %K의 3일 이동평균</li>
+        </ul>
+        <h4 style="font-weight:700;margin:16px 0 8px;">매매 신호</h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+            <strong>20 이하 (과매도)</strong>: %K가 %D를 상향 돌파하면 매수
+          </div>
+          <div style="padding:10px 14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+            <strong>80 이상 (과매수)</strong>: %K가 %D를 하향 돌파하면 매도
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="chart-container" style="height:280px;"><canvas id="stochChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Volume -->
+  <div class="card" style="margin-bottom:24px;" id="volume">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">6. 거래량 분석</h2>
+    <div>
+      <h4 style="font-weight:700;margin-bottom:8px;">핵심 원리</h4>
+      <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;margin-bottom:16px;">
+        거래량은 가격 변동의 신뢰성을 확인하는 핵심 지표입니다. "거래량이 가격에 선행한다"는 원칙이 중요합니다.
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+        <div style="padding:14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+          <strong>상승 + 거래량 증가</strong><br>상승 추세가 강하게 지속될 가능성. 매수세가 확인됨.
+        </div>
+        <div style="padding:14px;background:#fef9c3;border-radius:8px;font-size:0.85rem;color:#ca8a04;">
+          <strong>상승 + 거래량 감소</strong><br>상승 추세가 약해지고 있음. 조정 가능성.
+        </div>
+        <div style="padding:14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;">
+          <strong>하락 + 거래량 증가</strong><br>패닉 셀링. 하락 추세가 강화될 수 있음.
+        </div>
+        <div style="padding:14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;">
+          <strong>하락 + 거래량 감소</strong><br>매도 압력 약화. 바닥 근처일 수 있음.
+        </div>
+      </div>
+      <div style="margin-top:16px;">
+        <h4 style="font-weight:700;margin-bottom:8px;">OBV (On-Balance Volume)</h4>
+        <p style="font-size:0.88rem;color:var(--text2);line-height:1.7;">
+          상승일 거래량은 더하고, 하락일 거래량은 빼서 누적한 값입니다. OBV가 상승하면 매수세 유입, 하락하면 매도세 유입을 나타냅니다.
+          주가와 OBV의 방향이 다르면 (다이버전스) 추세 전환을 예고합니다.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADX -->
+  <div class="card" style="margin-bottom:24px;" id="adx">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">7. ADX (Average Directional Index)</h2>
+    <div>
+      <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+      <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;margin-bottom:16px;">
+        추세의 <strong>강도</strong>를 측정합니다 (방향은 아닙니다). 0~100 사이의 값을 가집니다.
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+        <div style="padding:14px;background:var(--bg3);border-radius:8px;font-size:0.85rem;">
+          <strong>ADX &lt; 20</strong><br><span style="color:var(--text3);">추세 없음 (횡보장)</span>
+        </div>
+        <div style="padding:14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;">
+          <strong>ADX 20~25</strong><br>추세 시작 가능성
+        </div>
+        <div style="padding:14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;">
+          <strong>ADX 25~50</strong><br>강한 추세 진행 중
+        </div>
+        <div style="padding:14px;background:#fef9c3;border-radius:8px;font-size:0.85rem;color:#ca8a04;">
+          <strong>ADX &gt; 50</strong><br>매우 강한 추세 (극단적)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fibonacci -->
+  <div class="card" style="margin-bottom:24px;" id="fib">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">8. 피보나치 되돌림 (Fibonacci Retracement)</h2>
+    <div>
+      <h4 style="font-weight:700;margin-bottom:8px;">개념</h4>
+      <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;margin-bottom:16px;">
+        상승/하락 추세에서 되돌림(조정) 수준을 예측하는 데 사용합니다. 고점과 저점 사이의 특정 비율에서 지지/저항이 형성됩니다.
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+        <div style="padding:14px;background:#dcfce7;border-radius:8px;font-size:0.85rem;color:#16a34a;text-align:center;">
+          <strong>23.6%</strong><br>약한 조정<br>(추세 지속 가능성 높음)
+        </div>
+        <div style="padding:14px;background:#dbeafe;border-radius:8px;font-size:0.85rem;color:#2563eb;text-align:center;">
+          <strong>38.2%</strong><br>적정 조정<br>(건강한 되돌림)
+        </div>
+        <div style="padding:14px;background:#fef9c3;border-radius:8px;font-size:0.85rem;color:#ca8a04;text-align:center;">
+          <strong>50.0%</strong><br>중간 조정<br>(핵심 지지/저항)
+        </div>
+        <div style="padding:14px;background:#fee2e2;border-radius:8px;font-size:0.85rem;color:#dc2626;text-align:center;">
+          <strong>61.8%</strong><br>깊은 조정<br>(황금비율 - 가장 중요)
+        </div>
+      </div>
+      <p style="font-size:0.85rem;color:var(--text3);margin-top:12px;">
+        고급분석 페이지에서 실제 종목의 피보나치 레벨을 확인할 수 있습니다.
+      </p>
+    </div>
+  </div>
+
+  <!-- Candle Patterns -->
+  <div class="card" style="margin-bottom:24px;" id="patterns">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">9. 주요 캔들 패턴</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
+      <div style="padding:16px;background:#dcfce7;border-radius:var(--radius-sm);">
+        <h4 style="font-weight:700;color:#16a34a;margin-bottom:8px;">반전 상승 패턴</h4>
+        <ul style="font-size:0.85rem;color:#16a34a;padding-left:18px;line-height:2;">
+          <li><strong>망치형 (Hammer)</strong>: 긴 아래꼬리, 짧은 몸통. 하락 후 바닥 신호.</li>
+          <li><strong>상승 장악형 (Bullish Engulfing)</strong>: 양봉이 전일 음봉을 완전히 감쌈.</li>
+          <li><strong>모닝스타 (Morning Star)</strong>: 긴 음봉 → 짧은 몸통 → 긴 양봉. 바닥 확인.</li>
+          <li><strong>역망치형 (Inverted Hammer)</strong>: 긴 윗꼬리, 짧은 몸통. 하락 후 반등 시도.</li>
+        </ul>
+      </div>
+      <div style="padding:16px;background:#fee2e2;border-radius:var(--radius-sm);">
+        <h4 style="font-weight:700;color:#dc2626;margin-bottom:8px;">반전 하락 패턴</h4>
+        <ul style="font-size:0.85rem;color:#dc2626;padding-left:18px;line-height:2;">
+          <li><strong>교수형 (Hanging Man)</strong>: 상승 후 나타나는 망치형. 천장 신호.</li>
+          <li><strong>하락 장악형 (Bearish Engulfing)</strong>: 음봉이 전일 양봉을 완전히 감쌈.</li>
+          <li><strong>이브닝스타 (Evening Star)</strong>: 긴 양봉 → 짧은 몸통 → 긴 음봉. 천장 확인.</li>
+          <li><strong>유성형 (Shooting Star)</strong>: 긴 윗꼬리, 짧은 몸통. 상승 후 하락 전환.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scoring -->
+  <div class="card" style="margin-bottom:24px;" id="scoring">
+    <h2 style="font-weight:800;margin-bottom:16px;color:var(--primary);">10. StockPulse 점수 산정 방법</h2>
+    <div>
+      <p style="font-size:0.9rem;color:var(--text2);line-height:1.7;margin-bottom:16px;">
+        StockPulse는 기술적 분석과 정성적 분석을 각각 독립적으로 점수화합니다. 기준점 50에서 시작하여 각 지표의 상태에 따라 가감합니다.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div style="padding:16px;background:var(--bg3);border-radius:var(--radius-sm);">
+          <h4 style="font-weight:700;margin-bottom:8px;">기술적 분석 점수</h4>
+          <table class="indicator-table" style="font-size:0.82rem;">
+            <tr><td>RSI 과매도/과매수</td><td>+/-10점</td></tr>
+            <tr><td>MACD 크로스</td><td>+/-8점</td></tr>
+            <tr><td>MACD 히스토그램</td><td>+/-3점</td></tr>
+            <tr><td>이평선 정배열/역배열</td><td>+/-5점 (x2)</td></tr>
+            <tr><td>스토캐스틱 과매도/과매수</td><td>+/-7점</td></tr>
+          </table>
+        </div>
+        <div style="padding:16px;background:var(--bg3);border-radius:var(--radius-sm);">
+          <h4 style="font-weight:700;margin-bottom:8px;">정성적 분석 점수</h4>
+          <table class="indicator-table" style="font-size:0.82rem;">
+            <tr><td>PER 저/고평가</td><td>+8/-6점</td></tr>
+            <tr><td>ROE 수준</td><td>+7/-5점</td></tr>
+            <tr><td>매출 성장률</td><td>+6/-5점</td></tr>
+            <tr><td>부채비율</td><td>+4/-5점</td></tr>
+            <tr><td>애널리스트 의견</td><td>+5/-3점</td></tr>
+          </table>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center;">
+        <div style="padding:10px;background:#bbf7d0;border-radius:8px;"><strong>80+</strong><br><span style="font-size:0.82rem;">Strong Buy</span></div>
+        <div style="padding:10px;background:#dcfce7;border-radius:8px;"><strong>65~79</strong><br><span style="font-size:0.82rem;">Buy</span></div>
+        <div style="padding:10px;background:#fef9c3;border-radius:8px;"><strong>45~64</strong><br><span style="font-size:0.82rem;">Hold</span></div>
+        <div style="padding:10px;background:#fee2e2;border-radius:8px;"><strong>30~44</strong><br><span style="font-size:0.82rem;">Sell</span></div>
+        <div style="padding:10px;background:#fecaca;border-radius:8px;"><strong>0~29</strong><br><span style="font-size:0.82rem;">Strong Sell</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#888';
+  const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: textColor, font: { size: 10 } } }, tooltip: { titleFont:{size:11}, bodyFont:{size:11}, padding:6 } }, scales: { x: { ticks: { color: textColor, font:{size:9}, maxTicksLimit:6 }, grid:{color:gridColor} }, y: { ticks: { color: textColor, font:{size:9} }, grid:{color:gridColor} } } };
+
+  // Generate sample data
+  const labels = Array.from({length:60}, (_,i) => 'D'+(i+1));
+  const base = 100;
+  let price = [];
+  let v = base;
+  for(let i=0;i<60;i++){ v += (Math.random()-0.48)*3; price.push(Math.round(v*100)/100); }
+
+  // SMA chart
+  const sma20 = price.map((_,i) => i<19 ? null : price.slice(i-19,i+1).reduce((a,b)=>a+b)/20);
+  const sma5 = price.map((_,i) => i<4 ? null : price.slice(i-4,i+1).reduce((a,b)=>a+b)/5);
+  new Chart(document.getElementById('smaChart'), {
+    type:'line', data:{ labels, datasets:[
+      {label:'주가',data:price,borderColor:'#2563eb',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+      {label:'SMA 5',data:sma5,borderColor:'#f59e0b',borderWidth:1.5,pointRadius:0,borderDash:[3,2],fill:false},
+      {label:'SMA 20',data:sma20,borderColor:'#10b981',borderWidth:1.5,pointRadius:0,borderDash:[5,3],fill:false},
+    ]}, options:{...opts, plugins:{...opts.plugins, annotation:undefined}}
+  });
+
+  // BB chart
+  const bbMid = sma20;
+  const bbUpper = price.map((_,i) => {
+    if(i<19) return null;
+    const slice = price.slice(i-19,i+1);
+    const mean = slice.reduce((a,b)=>a+b)/20;
+    const std = Math.sqrt(slice.reduce((a,b)=>a+(b-mean)**2,0)/20);
+    return Math.round((mean+2*std)*100)/100;
+  });
+  const bbLower = price.map((_,i) => {
+    if(i<19) return null;
+    const slice = price.slice(i-19,i+1);
+    const mean = slice.reduce((a,b)=>a+b)/20;
+    const std = Math.sqrt(slice.reduce((a,b)=>a+(b-mean)**2,0)/20);
+    return Math.round((mean-2*std)*100)/100;
+  });
+  new Chart(document.getElementById('bbChart'), {
+    type:'line', data:{ labels, datasets:[
+      {label:'주가',data:price,borderColor:'#2563eb',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+      {label:'BB Upper',data:bbUpper,borderColor:'rgba(239,68,68,0.5)',borderWidth:1,pointRadius:0,fill:false},
+      {label:'BB Middle',data:bbMid,borderColor:'rgba(239,68,68,0.3)',borderWidth:1,pointRadius:0,borderDash:[3,2],fill:false},
+      {label:'BB Lower',data:bbLower,borderColor:'rgba(239,68,68,0.5)',borderWidth:1,pointRadius:0,fill:'+1',backgroundColor:'rgba(239,68,68,0.06)'},
+    ]}, options:opts
+  });
+
+  // RSI chart
+  const rsiData = [];
+  for(let i=0;i<60;i++){ rsiData.push(30 + Math.sin(i*0.15)*25 + (Math.random()-0.5)*10); }
+  new Chart(document.getElementById('rsiChart'), {
+    type:'line', data:{ labels, datasets:[
+      {label:'RSI',data:rsiData,borderColor:'#8b5cf6',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+    ]}, options:{...opts, scales:{...opts.scales, y:{...opts.scales.y, min:0, max:100, ticks:{...opts.scales.y.ticks, stepSize:10}}},
+      plugins:{...opts.plugins, annotation:{annotations:{
+        line70:{type:'line',yMin:70,yMax:70,borderColor:'rgba(220,38,38,0.5)',borderWidth:1,borderDash:[4,4],label:{display:true,content:'70 과매수',position:'end',font:{size:9}}},
+        line30:{type:'line',yMin:30,yMax:30,borderColor:'rgba(22,163,74,0.5)',borderWidth:1,borderDash:[4,4],label:{display:true,content:'30 과매도',position:'end',font:{size:9}}},
+      }}}}
+  });
+
+  // MACD chart
+  const macdLine = [];
+  const signalLine = [];
+  const histogram = [];
+  for(let i=0;i<60;i++){
+    const m = Math.sin(i*0.12)*3 + (Math.random()-0.5);
+    macdLine.push(Math.round(m*100)/100);
+    const s = i>0 ? signalLine[i-1]*0.8+m*0.2 : m;
+    signalLine.push(Math.round(s*100)/100);
+    histogram.push(Math.round((m-s)*100)/100);
+  }
+  new Chart(document.getElementById('macdChart'), {
+    type:'bar', data:{ labels, datasets:[
+      {type:'line',label:'MACD',data:macdLine,borderColor:'#2563eb',borderWidth:2,pointRadius:0,tension:0.3,fill:false,order:1},
+      {type:'line',label:'Signal',data:signalLine,borderColor:'#f59e0b',borderWidth:1.5,pointRadius:0,tension:0.3,borderDash:[3,2],fill:false,order:2},
+      {label:'Histogram',data:histogram,backgroundColor:histogram.map(h=>h>=0?'rgba(22,163,74,0.5)':'rgba(220,38,38,0.5)'),order:3},
+    ]}, options:opts
+  });
+
+  // Stochastic chart
+  const stochK = [];
+  const stochD = [];
+  for(let i=0;i<60;i++){
+    const k = 20 + Math.sin(i*0.18)*35 + (Math.random()-0.5)*8;
+    stochK.push(Math.max(0,Math.min(100,Math.round(k*10)/10)));
+    const d = i>1 ? (stochK[i]+stochK[i-1]+(stochK[i-2]||k))/3 : k;
+    stochD.push(Math.max(0,Math.min(100,Math.round(d*10)/10)));
+  }
+  new Chart(document.getElementById('stochChart'), {
+    type:'line', data:{ labels, datasets:[
+      {label:'%K',data:stochK,borderColor:'#2563eb',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+      {label:'%D',data:stochD,borderColor:'#f59e0b',borderWidth:1.5,pointRadius:0,tension:0.3,borderDash:[3,2],fill:false},
+    ]}, options:{...opts, scales:{...opts.scales, y:{...opts.scales.y, min:0, max:100}}}
+  });
+});
+</script>
+{% endblock %}

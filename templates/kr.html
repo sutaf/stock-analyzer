@@ -1,0 +1,671 @@
+{% extends "base.html" %}
+{% block title %}한국주식 분석 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">한국주식 분석</h1>
+  <p class="subtitle">종목명 또는 코드를 입력하면 기술지표 분석 결과를 확인</p>
+</section>
+
+<div class="container">
+  <!-- Search -->
+  <div class="search-box" style="margin-bottom:12px;">
+    <input type="text" id="stockInput" placeholder="종목명 또는 코드 (예: 삼성전자, 005930)" autocomplete="off">
+    <button class="btn btn-primary" id="analyzeBtn">분석하기</button>
+    <button class="btn btn-secondary btn-sm" id="watchlistBtn" style="display:none;">&#x2B50; 관심종목 추가</button>
+  </div>
+
+  <!-- Search suggestions -->
+  <div id="suggestions" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:16px;overflow:hidden;"></div>
+
+  <!-- Quick buttons -->
+  <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap;">
+    <span style="font-size:0.8rem;color:var(--text3);line-height:36px;">인기:</span>
+    <button class="btn btn-secondary btn-sm" onclick="analyzeKR('005930')">삼성전자</button>
+    <button class="btn btn-secondary btn-sm" onclick="analyzeKR('000660')">SK하이닉스</button>
+    <button class="btn btn-secondary btn-sm" onclick="analyzeKR('035420')">NAVER</button>
+    <button class="btn btn-secondary btn-sm" onclick="analyzeKR('035720')">카카오</button>
+    <button class="btn btn-secondary btn-sm" onclick="analyzeKR('373220')">LG에너지솔루션</button>
+  </div>
+
+  <!-- Recent -->
+  <div id="recentSearches" style="margin-bottom:16px;"></div>
+
+  <!-- Watchlist -->
+  <div class="watchlist" style="margin-bottom:20px;">
+    <h4 style="font-size:0.9rem;font-weight:700;margin-bottom:8px;">관심종목</h4>
+    <div id="krWatchlist" class="watchlist-items"></div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingBox" class="loading" style="display:none;">
+    <div class="spinner"></div>
+    <p style="margin-top:12px;">분석 중...</p>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBox" class="error-msg" style="display:none;"></div>
+
+  <!-- Result -->
+  <div id="resultSection" class="result-section hidden">
+    <div class="summary-grid" id="summaryGrid"></div>
+
+    <!-- Infographic Score Overview -->
+    <div class="card" style="margin-bottom:24px;">
+      <div class="score-overview">
+        <div class="radar-wrap">
+          <canvas id="radarChart" width="260" height="260"></canvas>
+          <div style="margin-top:8px;text-align:center;">
+            <span style="font-size:0.78rem;color:var(--text3);">종합</span>
+            <div id="scoreRing" class="score-ring" style="width:64px;height:64px;font-size:1.2rem;margin:4px auto;"></div>
+            <div id="gradeText" style="font-size:0.95rem;font-weight:700;"></div>
+          </div>
+        </div>
+        <div>
+          <h3 style="font-weight:700;margin-bottom:10px;font-size:0.95rem;">핵심 시그널</h3>
+          <div class="signal-cards" id="signalCards"></div>
+          <p id="commentText" style="font-size:0.82rem;color:var(--text3);margin-top:12px;"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="chart">차트</button>
+      <button class="tab-btn" data-tab="indicators">기술지표</button>
+      <button class="tab-btn" data-tab="fundamental">펀더멘털</button>
+      <button class="tab-btn" data-tab="community">커뮤니티</button>
+      <button class="tab-btn" data-tab="reasons">핵심 사유</button>
+      <button class="tab-btn" data-tab="news">뉴스</button>
+    </div>
+
+    <div id="tab-chart" class="tab-content">
+      <div class="chart-container"><canvas id="priceChart"></canvas></div>
+      <div class="chart-signal-legend" id="signalLegend"></div>
+      <div class="chart-container short"><canvas id="volumeChart"></canvas></div>
+    </div>
+
+    <div id="tab-indicators" class="tab-content" style="display:none;">
+      <div class="card">
+        <h3 style="margin-bottom:16px;font-weight:700;">기술 지표</h3>
+        <table class="indicator-table" id="indicatorTable">
+          <thead><tr><th>지표</th><th>값</th><th>신호</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tab-fundamental" class="tab-content" style="display:none;">
+      <div class="card" style="text-align:center;margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">정성적 분석 점수</h3>
+        <div id="qualScoreRing" class="score-ring" style="width:80px;height:80px;font-size:1.5rem;"></div>
+        <div id="qualGradeText" style="margin-top:8px;font-weight:700;"></div>
+      </div>
+      <div class="card" style="margin-bottom:20px;" id="companyInfoCard"></div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">밸류에이션</h3>
+        <table class="indicator-table" id="valuationTable"><thead><tr><th>지표</th><th>값</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">수익성</h3>
+        <table class="indicator-table" id="profitTable"><thead><tr><th>지표</th><th>값</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">재무 건전성</h3>
+        <table class="indicator-table" id="healthTable"><thead><tr><th>지표</th><th>값</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">배당</h3>
+        <table class="indicator-table" id="dividendTable"><thead><tr><th>지표</th><th>값</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3 style="font-weight:700;margin-bottom:16px;">애널리스트 의견</h3>
+        <div id="analystInfo"></div>
+      </div>
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:16px;">정성적 분석 사유</h3>
+        <ul class="reasons-list" id="qualReasonsList"></ul>
+      </div>
+    </div>
+
+    <!-- Tab: Community -->
+    <div id="tab-community" class="tab-content" style="display:none;">
+      <div id="communityLoading" class="loading"><div class="spinner"></div><p style="margin-top:8px;">커뮤니티 감성 분석 중...</p></div>
+      <div id="communityContent" style="display:none;">
+        <div class="card" style="text-align:center;margin-bottom:20px;">
+          <h3 style="font-weight:700;margin-bottom:16px;">커뮤니티 감성 점수</h3>
+          <div id="commScoreRing" class="score-ring" style="width:80px;height:80px;font-size:1.5rem;"></div>
+          <div id="commGradeText" style="margin-top:8px;font-weight:700;"></div>
+          <p id="commMethodology" style="font-size:0.78rem;color:var(--text3);margin-top:8px;max-width:500px;margin-left:auto;margin-right:auto;"></p>
+        </div>
+        <div class="summary-grid" id="commStats" style="margin-bottom:20px;"></div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="font-weight:700;margin-bottom:4px;">커뮤니티 키워드</h3>
+          <p style="font-size:0.78rem;color:var(--text3);margin-bottom:8px;">글자 크기 = 언급 빈도 | 초록 = 긍정 | 빨강 = 부정</p>
+          <div class="word-cloud" id="wordCloud"></div>
+        </div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="font-weight:700;margin-bottom:12px;">분석 사유</h3>
+          <ul class="reasons-list" id="commReasons"></ul>
+        </div>
+        <div class="card">
+          <h3 style="font-weight:700;margin-bottom:12px;">주요 커뮤니티 게시글</h3>
+          <div id="commPosts" class="news-list"></div>
+        </div>
+      </div>
+      <div id="communityError" style="display:none;" class="error-msg"></div>
+    </div>
+
+    <div id="tab-reasons" class="tab-content" style="display:none;">
+      <div class="card">
+        <h3 style="margin-bottom:16px;font-weight:700;">핵심 분석 사유 (기술적)</h3>
+        <ul class="reasons-list" id="reasonsList"></ul>
+      </div>
+    </div>
+
+    <div id="tab-news" class="tab-content" style="display:none;">
+      <div class="card">
+        <h3 style="margin-bottom:16px;font-weight:700;">관련 뉴스</h3>
+        <div class="news-list" id="newsList">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentData = null;
+let priceChartInstance = null;
+let volumeChartInstance = null;
+let searchTimeout = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('stockInput');
+  const btn = document.getElementById('analyzeBtn');
+
+  btn.addEventListener('click', () => handleSearch(input.value));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') handleSearch(input.value); });
+
+  // Live search
+  input.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = input.value.trim();
+    if (q.length < 1) { document.getElementById('suggestions').style.display = 'none'; return; }
+    searchTimeout = setTimeout(() => searchStocks(q), 200);
+  });
+
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(x => x.style.display = 'none');
+      b.classList.add('active');
+      document.getElementById('tab-' + b.dataset.tab).style.display = 'block';
+    });
+  });
+
+  renderWatchlist('krWatchlist', (key) => analyzeKR(key));
+  renderRecentKR();
+
+  // URL param
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('code')) analyzeKR(params.get('code'));
+
+  // Watchlist button
+  document.getElementById('watchlistBtn').addEventListener('click', () => {
+    if (!currentData) return;
+    const added = addToWatchlist({ code: currentData.code, name: currentData.name });
+    if (added) {
+      renderWatchlist('krWatchlist', (key) => analyzeKR(key));
+      document.getElementById('watchlistBtn').textContent = '\u2705 추가됨';
+      setTimeout(() => { document.getElementById('watchlistBtn').textContent = '\u2B50 관심종목 추가'; }, 1500);
+    }
+  });
+});
+
+async function searchStocks(q) {
+  try {
+    const res = await fetch(`/api/search/kr?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const el = document.getElementById('suggestions');
+    if (!data.results || data.results.length === 0) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = data.results.map(r =>
+      `<div style="padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;border-bottom:1px solid var(--border);transition:0.2s;"
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
+        onclick="analyzeKR('${r.code}')">
+        <span><strong>${escapeHtml(r.name)}</strong> <span style="color:var(--text3);font-size:0.85rem;">${escapeHtml(r.code)}</span></span>
+        <span style="font-size:0.78rem;color:var(--text3);">${escapeHtml(r.market)}</span>
+      </div>`
+    ).join('');
+  } catch (e) {}
+}
+
+function handleSearch(q) {
+  q = q.trim();
+  if (!q) return;
+  document.getElementById('suggestions').style.display = 'none';
+  // If it's a 6-digit code, analyze directly
+  if (/^\d{6}$/.test(q)) {
+    analyzeKR(q);
+  } else {
+    // Search by name first
+    fetch(`/api/search/kr?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.results && data.results.length > 0) {
+          analyzeKR(data.results[0].code);
+        } else {
+          document.getElementById('errorBox').textContent = `'${q}' 종목을 찾을 수 없습니다.`;
+          document.getElementById('errorBox').style.display = 'block';
+        }
+      });
+  }
+}
+
+async function analyzeKR(code) {
+  code = code.trim();
+  document.getElementById('stockInput').value = code;
+  document.getElementById('suggestions').style.display = 'none';
+  document.getElementById('loadingBox').style.display = 'block';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('resultSection').classList.add('hidden');
+  document.getElementById('watchlistBtn').style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/analyze/kr/${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    currentData = data;
+    addRecentSearch('kr', { code: data.code, name: data.name });
+    renderRecentKR();
+    renderResult(data);
+    loadNews(code);
+    loadCommunity(data.ticker || code);
+    window.history.replaceState(null, '', `/kr?code=${code}`);
+  } catch (err) {
+    document.getElementById('errorBox').textContent = err.message;
+    document.getElementById('errorBox').style.display = 'block';
+  } finally {
+    document.getElementById('loadingBox').style.display = 'none';
+  }
+}
+
+function renderRecentKR() {
+  const list = getRecentSearches('kr');
+  const el = document.getElementById('recentSearches');
+  if (list.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = '<span style="font-size:0.8rem;color:var(--text3);margin-right:8px;">최근:</span>' +
+    list.map(item => `<button class="btn btn-secondary btn-sm" style="margin:2px 4px;" onclick="analyzeKR('${escapeHtml(item.code || item)}')">${escapeHtml(item.name || item.code || item)}</button>`).join('');
+}
+
+function renderResult(data) {
+  document.getElementById('resultSection').classList.remove('hidden');
+  document.getElementById('watchlistBtn').style.display = 'inline-flex';
+
+  document.getElementById('summaryGrid').innerHTML = `
+    <div class="summary-item">
+      <div class="label">종목명</div>
+      <div class="value" style="font-size:1rem;">${escapeHtml(data.name)}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">종목코드</div>
+      <div class="value">${escapeHtml(data.code)}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">현재가</div>
+      <div class="value">${formatKRW(data.close)}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">변동률</div>
+      <div class="value ${getChangeClass(data.change_pct)}">${getChangeText(data.change_pct)}</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">기준일</div>
+      <div class="value" style="font-size:0.95rem;">${escapeHtml(data.date)}</div>
+    </div>
+    ${data.pe_ratio ? `<div class="summary-item"><div class="label">PER</div><div class="value">${formatNumber(data.pe_ratio, 1)}</div></div>` : ''}
+    ${data.market_cap ? `<div class="summary-item"><div class="label">시가총액</div><div class="value" style="font-size:0.95rem;">${formatNumber(data.market_cap)}</div></div>` : ''}
+  `;
+
+  const scoreEl = document.getElementById('scoreRing');
+  scoreEl.textContent = data.score;
+  scoreEl.className = 'score-ring ' + getScoreClass(data.score);
+  document.getElementById('gradeText').innerHTML = getGradeBadge(data.grade);
+
+  const comments = {
+    'Strong Buy': '강력 매수 신호입니다. 다수 지표가 상승을 가리킵니다.',
+    'Buy': '매수 신호입니다. 기술지표가 긍정적입니다.',
+    'Hold': '보유 유지가 적합합니다. 추세를 지켜보세요.',
+    'Sell': '매도 고려가 필요합니다. 하락 신호가 감지됩니다.',
+    'Strong Sell': '강력 매도 신호입니다. 리스크 관리에 유의하세요.',
+  };
+  document.getElementById('commentText').textContent = comments[data.grade] || '';
+
+  // Signal cards & radar
+  renderSignalCards(data.reasons);
+  renderRadarChart(data.score, null, null);
+
+  renderIndicators(data.indicators);
+  if (data.fundamental && !data.fundamental.error) {
+    renderFundamental(data.fundamental, data.close);
+    renderRadarChart(data.score, data.fundamental.qual_score, null);
+  }
+  document.getElementById('reasonsList').innerHTML = data.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('');
+  renderCharts(data.chart);
+}
+
+function renderIndicators(ind) {
+  const rows = [
+    ['SMA 5', ind.SMA5, null],
+    ['SMA 10', ind.SMA10, null],
+    ['SMA 20', ind.SMA20, null],
+    ['SMA 60', ind.SMA60, null],
+    ['SMA 120', ind.SMA120, null],
+    ['RSI (14)', ind.RSI, ind.RSI != null ? (ind.RSI < 30 ? 'bullish' : ind.RSI > 70 ? 'bearish' : 'neutral') : null],
+    ['MACD', ind.MACD, ind.MACD != null && ind.MACD_Signal != null ? (ind.MACD > ind.MACD_Signal ? 'bullish' : 'bearish') : null],
+    ['MACD Signal', ind.MACD_Signal, null],
+    ['MACD Histogram', ind.MACD_Hist, ind.MACD_Hist != null ? (ind.MACD_Hist > 0 ? 'bullish' : 'bearish') : null],
+    ['Stochastic K', ind.Stoch_K, ind.Stoch_K != null ? (ind.Stoch_K < 20 ? 'bullish' : ind.Stoch_K > 80 ? 'bearish' : 'neutral') : null],
+    ['Stochastic D', ind.Stoch_D, null],
+    ['Bollinger Upper', ind.BB_Upper, null],
+    ['Bollinger Middle', ind.BB_Middle, null],
+    ['Bollinger Lower', ind.BB_Lower, null],
+    ['ATR (14)', ind.ATR, null],
+    ['ADX', ind.ADX, ind.ADX != null ? (ind.ADX > 25 ? 'bullish' : 'neutral') : null],
+    ['OBV', ind.OBV, null],
+    ['Volume Ratio', ind.Volume_Ratio, ind.Volume_Ratio != null ? (ind.Volume_Ratio > 1.5 ? 'bullish' : ind.Volume_Ratio < 0.5 ? 'bearish' : 'neutral') : null],
+  ];
+  const signalLabels = { bullish: '매수', bearish: '매도', neutral: '중립' };
+  document.querySelector('#indicatorTable tbody').innerHTML = rows.map(([name, val, signal]) => {
+    const valStr = val != null ? formatNumber(val, 4) : '-';
+    const sigCls = signal ? `signal-${signal}` : '';
+    const sigText = signal ? signalLabels[signal] : '-';
+    return `<tr><td>${escapeHtml(name)}</td><td>${valStr}</td><td class="${sigCls}">${sigText}</td></tr>`;
+  }).join('');
+}
+
+// ─── Infographic renderers ───
+let radarChartInstance = null;
+
+function renderRadarChart(techScore, fundScore, commScore) {
+  if (radarChartInstance) radarChartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#94a3b8' : '#666';
+  radarChartInstance = new Chart(document.getElementById('radarChart'), {
+    type: 'radar',
+    data: {
+      labels: ['기술적 분석', '정성적 분석', '커뮤니티 감성'],
+      datasets: [{
+        label: '점수', data: [techScore||0, fundScore||0, commScore||0],
+        backgroundColor: 'rgba(37,99,235,0.15)', borderColor: '#2563eb', borderWidth: 2,
+        pointBackgroundColor: [techScore!=null?'#2563eb':'#ccc', fundScore!=null?'#10b981':'#ccc', commScore!=null?'#f59e0b':'#ccc'],
+        pointRadius: 5,
+      }],
+    },
+    options: {
+      responsive:true, maintainAspectRatio:true,
+      plugins:{ legend:{display:false}, tooltip:{titleFont:{size:11},bodyFont:{size:11},padding:6, callbacks:{label:ctx=>ctx.parsed.r+'점'}} },
+      scales:{ r:{ min:0, max:100, ticks:{stepSize:25,color:textColor,font:{size:9},backdropColor:'transparent'}, grid:{color:isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'}, pointLabels:{color:textColor,font:{size:11,weight:'700'}} } },
+    },
+  });
+}
+
+function renderSignalCards(reasons) {
+  const icons = { 'RSI':{bull:'📈',bear:'📉'}, 'MACD':{bull:'🔼',bear:'🔽'}, '이평선':{bull:'↗️',bear:'↘️'}, '스토캐스틱':{bull:'⚡',bear:'⚡'}, 'ADX':{bull:'💪',bear:'😐'}, '거래량':{bull:'🔊',bear:'🔇'} };
+  const cards = reasons.map(r => {
+    const isBull = r.includes('상승') || r.includes('과매도') || r.includes('강도 높음') || r.includes('증가') || r.includes('급증');
+    const isBear = r.includes('하락') || r.includes('과매수') || r.includes('약함') || r.includes('부진');
+    const cls = isBull ? 'bullish' : isBear ? 'bearish' : 'neutral';
+    let icon = isBull ? '✅' : isBear ? '⚠️' : 'ℹ️';
+    for (const [key, val] of Object.entries(icons)) { if (r.includes(key)) { icon = isBull ? val.bull : val.bear; break; } }
+    const parts = r.split(' - ');
+    return `<div class="signal-card ${cls}"><span class="icon">${icon}</span><div><div class="text">${escapeHtml(parts[0])}</div>${parts[1]?`<div class="sub">${escapeHtml(parts[1])}</div>`:''}</div></div>`;
+  });
+  document.getElementById('signalCards').innerHTML = cards.join('');
+}
+
+function renderWordCloud(words) {
+  const el = document.getElementById('wordCloud');
+  if (!words || words.length === 0) { el.innerHTML = '<p style="color:var(--text3);font-size:0.85rem;">키워드 데이터 없음</p>'; return; }
+  const maxCount = Math.max(...words.map(w => w.count));
+  el.innerHTML = words.map(w => {
+    const size = 0.7 + (w.count / maxCount) * 1.6;
+    return `<span class="word ${w.sentiment}" style="font-size:${size.toFixed(2)}rem;" title="${w.word}: ${w.count}회 (${w.sentiment==='positive'?'긍정':w.sentiment==='negative'?'부정':'중립'})">${escapeHtml(w.word)}</span>`;
+  }).join('');
+}
+
+function renderCharts(chart) {
+  if (priceChartInstance) priceChartInstance.destroy();
+  if (volumeChartInstance) volumeChartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#94a3b8' : '#888';
+
+  priceChartInstance = new Chart(document.getElementById('priceChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: chart.dates,
+      datasets: [
+        { label: '종가', data: chart.close, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
+        { label: 'SMA 20', data: chart.sma20, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false },
+        { label: 'SMA 60', data: chart.sma60, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false },
+        { label: 'BB Upper', data: chart.bb_upper, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: false },
+        { label: 'BB Lower', data: chart.bb_lower, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(239,68,68,0.05)' },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8,
+        callbacks: {
+          afterBody: function(items) {
+            const idx = items[0]?.dataIndex;
+            const sigs = (chart.signals || []).filter(s => s.index === idx);
+            return sigs.map(s => '⚡ ' + s.label);
+          }
+        }
+      } },
+      scales: {
+        x: { ticks: { color: textColor, maxTicksLimit: 10, font: { size: 10 } }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } },
+      },
+    },
+  });
+
+  // Signal legend
+  const signals = chart.signals || [];
+  const legendEl = document.getElementById('signalLegend');
+  if (signals.length > 0) {
+    legendEl.innerHTML = signals.map(s => {
+      const cls = s.color === '#16a34a' ? 'buy' : 'sell';
+      return `<span class="sig-item ${cls}">● ${escapeHtml(s.date)} ${escapeHtml(s.label)}</span>`;
+    }).join('');
+  } else { legendEl.innerHTML = ''; }
+
+  const volColors = chart.close.map((c, i) => i === 0 ? 'rgba(37,99,235,0.5)' : (c >= chart.close[i-1] ? 'rgba(22,163,74,0.5)' : 'rgba(220,38,38,0.5)'));
+  volumeChartInstance = new Chart(document.getElementById('volumeChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: chart.dates, datasets: [{ label: '거래량', data: chart.volume, backgroundColor: volColors, borderWidth: 0 }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8 } },
+      scales: {
+        x: { ticks: { color: textColor, maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } },
+      },
+    },
+  });
+}
+
+function renderFundamental(f, closePrice) {
+  const qScore = f.qual_score || 0;
+  const qEl = document.getElementById('qualScoreRing');
+  qEl.textContent = qScore;
+  qEl.className = 'score-ring ' + getScoreClass(qScore);
+  const qGradeText = qScore >= 65 ? 'Positive' : qScore >= 45 ? 'Neutral' : 'Negative';
+  document.getElementById('qualGradeText').textContent = qGradeText;
+
+  const c = f.company || {};
+  document.getElementById('companyInfoCard').innerHTML = `
+    <h3 style="font-weight:700;margin-bottom:12px;">기업 개요</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;">
+      ${c.sector ? `<div class="summary-item"><div class="label">섹터</div><div class="value" style="font-size:0.9rem;">${escapeHtml(c.sector)}</div></div>` : ''}
+      ${c.industry ? `<div class="summary-item"><div class="label">산업</div><div class="value" style="font-size:0.9rem;">${escapeHtml(c.industry)}</div></div>` : ''}
+      ${c.country ? `<div class="summary-item"><div class="label">국가</div><div class="value" style="font-size:0.9rem;">${escapeHtml(c.country)}</div></div>` : ''}
+      ${c.employees ? `<div class="summary-item"><div class="label">직원수</div><div class="value" style="font-size:0.9rem;">${c.employees.toLocaleString()}명</div></div>` : ''}
+    </div>
+    ${c.summary ? `<p style="font-size:0.85rem;color:var(--text2);line-height:1.7;max-height:120px;overflow-y:auto;">${escapeHtml(c.summary)}</p>` : ''}
+  `;
+
+  const v = f.fundamentals || {};
+  renderSimpleTable('valuationTable', [
+    ['PER (Trailing)', v.pe_ratio], ['PER (Forward)', v.forward_pe], ['PEG', v.peg_ratio],
+    ['PBR', v.pb_ratio], ['PSR', v.ps_ratio], ['EV/EBITDA', v.ev_ebitda],
+    ['시가총액', v.market_cap != null ? formatNumber(v.market_cap) : null],
+  ]);
+
+  const p = f.profitability || {};
+  renderSimpleTable('profitTable', [
+    ['순이익률', p.profit_margin != null ? (p.profit_margin * 100).toFixed(1) + '%' : null],
+    ['영업이익률', p.operating_margin != null ? (p.operating_margin * 100).toFixed(1) + '%' : null],
+    ['ROE', p.roe != null ? (p.roe * 100).toFixed(1) + '%' : null],
+    ['ROA', p.roa != null ? (p.roa * 100).toFixed(1) + '%' : null],
+    ['매출액', p.revenue != null ? formatNumber(p.revenue) : null],
+    ['매출 성장률', p.revenue_growth != null ? (p.revenue_growth * 100).toFixed(1) + '%' : null],
+    ['EPS', p.eps],
+  ]);
+
+  const h = f.health || {};
+  renderSimpleTable('healthTable', [
+    ['부채비율(D/E)', h.debt_to_equity != null ? h.debt_to_equity.toFixed(0) + '%' : null],
+    ['유동비율', h.current_ratio], ['현금 보유', h.total_cash != null ? formatNumber(h.total_cash) : null],
+    ['총 부채', h.total_debt != null ? formatNumber(h.total_debt) : null],
+    ['잉여현금흐름(FCF)', h.free_cash_flow != null ? formatNumber(h.free_cash_flow) : null],
+  ]);
+
+  const d = f.dividend || {};
+  renderSimpleTable('dividendTable', [
+    ['배당수익률', d.dividend_yield != null ? (d.dividend_yield * 100).toFixed(2) + '%' : null],
+    ['연간 배당금', d.dividend_rate],
+    ['배당성향', d.payout_ratio != null ? (d.payout_ratio * 100).toFixed(0) + '%' : null],
+  ]);
+
+  const a = f.analyst || {};
+  let analystHtml = '';
+  if (a.target_mean != null && closePrice != null) {
+    const upside = ((a.target_mean - closePrice) / closePrice * 100).toFixed(1);
+    const upsideCls = upside >= 0 ? 'change-up' : 'change-down';
+    analystHtml = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+        <div class="summary-item"><div class="label">목표가 (평균)</div><div class="value">${formatKRW(a.target_mean)}</div></div>
+        <div class="summary-item"><div class="label">목표가 (최고)</div><div class="value">${formatKRW(a.target_high)}</div></div>
+        <div class="summary-item"><div class="label">목표가 (최저)</div><div class="value">${formatKRW(a.target_low)}</div></div>
+        <div class="summary-item"><div class="label">상승 여력</div><div class="value ${upsideCls}">${upside > 0 ? '+' : ''}${upside}%</div></div>
+        ${a.num_analysts ? `<div class="summary-item"><div class="label">애널리스트</div><div class="value">${a.num_analysts}명</div></div>` : ''}
+        ${a.recommendation ? `<div class="summary-item"><div class="label">컨센서스</div><div class="value">${escapeHtml(a.recommendation)}</div></div>` : ''}
+      </div>`;
+  } else {
+    analystHtml = '<p style="color:var(--text3);font-size:0.85rem;">애널리스트 데이터가 없습니다.</p>';
+  }
+  document.getElementById('analystInfo').innerHTML = analystHtml;
+  document.getElementById('qualReasonsList').innerHTML = (f.qual_reasons || []).map(r => `<li>${escapeHtml(r)}</li>`).join('');
+}
+
+function renderSimpleTable(tableId, rows) {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
+  tbody.innerHTML = rows.map(([name, val]) => {
+    let display = '-';
+    if (val != null && val !== '') {
+      display = (typeof val === 'number') ? formatNumber(val, 2) : val;
+    }
+    return `<tr><td>${escapeHtml(name)}</td><td>${display}</td></tr>`;
+  }).join('');
+}
+
+async function loadNews(code) {
+  const el = document.getElementById('newsList');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    const res = await fetch(`/api/news/kr/${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (!data.news || data.news.length === 0) { el.innerHTML = '<p style="color:var(--text3)">관련 뉴스를 찾을 수 없습니다.</p>'; return; }
+    el.innerHTML = data.news.map(n => `
+      <a href="${escapeHtml(n.link)}" target="_blank" rel="noopener" class="news-item">
+        <div class="title">${escapeHtml(n.title)}</div>
+        <div class="meta">${escapeHtml(n.publisher)} ${n.date ? '&middot; ' + escapeHtml(n.date) : ''}</div>
+      </a>`).join('');
+  } catch (err) { el.innerHTML = '<p style="color:var(--text3)">뉴스를 불러올 수 없습니다.</p>'; }
+}
+
+async function loadCommunity(ticker) {
+  document.getElementById('communityLoading').style.display = 'block';
+  document.getElementById('communityContent').style.display = 'none';
+  document.getElementById('communityError').style.display = 'none';
+  try {
+    const res = await fetch(`/api/community/${encodeURIComponent(ticker)}`);
+    const data = await res.json();
+    if (data.score == null) {
+      document.getElementById('communityError').textContent = data.message || '커뮤니티 데이터 부족';
+      document.getElementById('communityError').style.display = 'block';
+      document.getElementById('communityLoading').style.display = 'none';
+      return;
+    }
+    const se = document.getElementById('commScoreRing');
+    se.textContent = data.score; se.className = 'score-ring ' + getScoreClass(data.score);
+    document.getElementById('commGradeText').innerHTML = `<span class="badge ${data.score>=58?'badge-buy':data.score>=42?'badge-hold':'badge-sell'}">${escapeHtml(data.grade)}</span>`;
+    document.getElementById('commMethodology').textContent = data.methodology || '';
+    document.getElementById('commStats').innerHTML = `
+      <div class="summary-item"><div class="label">게시글 수</div><div class="value">${data.post_count}</div></div>
+      <div class="summary-item"><div class="label">긍정 / 부정 / 중립</div><div class="value" style="font-size:0.9rem;">${data.bullish_count} / ${data.bearish_count} / ${data.neutral_count}</div></div>
+      <div class="summary-item"><div class="label">평균 감성</div><div class="value ${data.avg_sentiment>=0?'change-up':'change-down'}">${data.avg_sentiment>=0?'+':''}${data.avg_sentiment}</div></div>
+      <div class="summary-item"><div class="label">볼륨 비율</div><div class="value">${data.volume_ratio}x</div></div>
+      <div class="summary-item"><div class="label">합의도</div><div class="value">${(data.consensus_pct*100).toFixed(0)}%</div></div>
+      <div class="summary-item"><div class="label">감성 추세</div><div class="value ${data.sentiment_momentum>=0?'change-up':'change-down'}">${data.sentiment_momentum>=0?'↑':'↓'} ${Math.abs(data.sentiment_momentum).toFixed(3)}</div></div>
+    `;
+    document.getElementById('commReasons').innerHTML = (data.reasons||[]).map(r => `<li>${escapeHtml(r)}</li>`).join('');
+    const posts = data.top_posts || [];
+    if (posts.length > 0) {
+      const INITIAL_SHOW = 5;
+      const renderPosts = (list) => list.map(p => {
+        const sentCls = p.sentiment > 0.1 ? 'change-up' : p.sentiment < -0.1 ? 'change-down' : '';
+        const sentLabel = p.sentiment > 0.1 ? '긍정' : p.sentiment < -0.1 ? '부정' : '중립';
+        const hoursText = p.hours_ago < 1 ? '방금 전' : p.hours_ago < 24 ? Math.round(p.hours_ago)+'시간 전' : Math.round(p.hours_ago/24)+'일 전';
+        return `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener" class="news-item">
+          <div class="title">${escapeHtml(p.title)}</div>
+          <div class="meta">r/${escapeHtml(p.subreddit)} &middot; ${hoursText} &middot; ↑${p.upvotes.toLocaleString()} &middot; 댓글 ${p.comments.toLocaleString()}개 &middot; <span class="${sentCls}">${sentLabel} (${p.sentiment.toFixed(2)})</span></div>
+        </a>`;
+      }).join('');
+      const container = document.getElementById('commPosts');
+      container.innerHTML = renderPosts(posts.slice(0, INITIAL_SHOW));
+      if (posts.length > INITIAL_SHOW) {
+        const moreBtn = document.createElement('button');
+        moreBtn.className = 'btn btn-secondary';
+        moreBtn.style.cssText = 'width:100%;margin-top:12px;';
+        moreBtn.textContent = `더보기 (${posts.length - INITIAL_SHOW}개 더)`;
+        moreBtn.addEventListener('click', () => { container.innerHTML = renderPosts(posts); });
+        container.appendChild(moreBtn);
+      }
+    } else {
+      document.getElementById('commPosts').innerHTML = '<p style="color:var(--text3)">게시글 없음</p>';
+    }
+    // Word cloud
+    renderWordCloud(data.word_cloud || []);
+    // Update radar
+    if (currentData) {
+      const fScore = currentData.fundamental?.qual_score || null;
+      renderRadarChart(currentData.score, fScore, data.score);
+    }
+    document.getElementById('communityContent').style.display = 'block';
+  } catch (err) {
+    document.getElementById('communityError').textContent = '커뮤니티 분석 오류: ' + err.message;
+    document.getElementById('communityError').style.display = 'block';
+  } finally {
+    document.getElementById('communityLoading').style.display = 'none';
+  }
+}
+</script>
+{% endblock %}

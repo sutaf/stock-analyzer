@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}고급 기술분석 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">고급 기술분석</h1>
+  <p class="subtitle">다중 지표 오버레이, 피보나치, 지지/저항선을 한 화면에서 분석</p>
+</section>
+
+<div class="container">
+  <!-- Search -->
+  <div class="search-box" style="margin-bottom:12px;">
+    <input type="text" id="tickerInput" placeholder="종목 입력 (예: AAPL, 005930, 삼성전자)" autocomplete="off">
+    <select id="periodSelect" style="height:48px;padding:0 14px;border:2px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);font-size:0.9rem;">
+      <option value="3mo">3개월</option>
+      <option value="6mo">6개월</option>
+      <option value="1y" selected>1년</option>
+      <option value="2y">2년</option>
+      <option value="5y">5년</option>
+    </select>
+    <button class="btn btn-primary" id="analyzeBtn">분석</button>
+  </div>
+
+  <!-- Indicator toggles -->
+  <div style="margin-bottom:20px;">
+    <span style="font-size:0.82rem;color:var(--text3);margin-right:8px;">오버레이:</span>
+    <label class="toggle-label"><input type="checkbox" id="togSMA5" checked> <span>SMA5</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togSMA10"> <span>SMA10</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togSMA20" checked> <span>SMA20</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togSMA60" checked> <span>SMA60</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togSMA120"> <span>SMA120</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togBB" checked> <span>BB</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togFib"> <span>피보나치</span></label>
+    <label class="toggle-label"><input type="checkbox" id="togSR"> <span>지지/저항</span></label>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingBox" class="loading" style="display:none;">
+    <div class="spinner"></div><p style="margin-top:12px;">고급 분석 중...</p>
+  </div>
+  <div id="errorBox" class="error-msg" style="display:none;"></div>
+
+  <!-- Result -->
+  <div id="resultSection" style="display:none;">
+    <!-- Summary bar -->
+    <div class="summary-grid" id="summaryGrid" style="margin-bottom:20px;"></div>
+
+    <!-- Main price chart -->
+    <div class="card" style="margin-bottom:20px;">
+      <h3 style="font-weight:700;margin-bottom:4px;" id="chartTitle">가격 차트</h3>
+      <p style="font-size:0.8rem;color:var(--text3);margin-bottom:12px;">체크박스를 토글하면 지표가 실시간 반영됩니다</p>
+      <div class="chart-container" style="height:420px;"><canvas id="mainChart"></canvas></div>
+    </div>
+
+    <!-- Sub charts row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+      <!-- Volume -->
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:8px;">거래량</h3>
+        <div class="chart-container short"><canvas id="volumeChart"></canvas></div>
+      </div>
+      <!-- MACD -->
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:8px;">MACD</h3>
+        <div class="chart-container short"><canvas id="macdChart"></canvas></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+      <!-- RSI -->
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:8px;">RSI (14)</h3>
+        <div class="chart-container short"><canvas id="rsiChart"></canvas></div>
+      </div>
+      <!-- Score + Reasons -->
+      <div class="card">
+        <h3 style="font-weight:700;margin-bottom:8px;">분석 요약</h3>
+        <div style="text-align:center;margin-bottom:12px;">
+          <div id="scoreRing" class="score-ring" style="width:70px;height:70px;font-size:1.3rem;"></div>
+          <div id="gradeText" style="margin-top:6px;"></div>
+        </div>
+        <ul class="reasons-list" id="reasonsList" style="max-height:160px;overflow-y:auto;"></ul>
+      </div>
+    </div>
+
+    <!-- Fibonacci & Support/Resistance -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+      <div class="card" id="fibCard" style="display:none;">
+        <h3 style="font-weight:700;margin-bottom:12px;">피보나치 되돌림</h3>
+        <table class="indicator-table" id="fibTable">
+          <thead><tr><th>레벨</th><th>가격</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card" id="srCard" style="display:none;">
+        <h3 style="font-weight:700;margin-bottom:12px;">피벗 지지/저항</h3>
+        <table class="indicator-table" id="srTable">
+          <thead><tr><th>레벨</th><th>가격</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Full indicators -->
+    <div class="card">
+      <h3 style="font-weight:700;margin-bottom:12px;">전체 기술 지표</h3>
+      <table class="indicator-table" id="indicatorTable">
+        <thead><tr><th>지표</th><th>값</th><th>신호</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+.toggle-label {
+  display:inline-flex;align-items:center;gap:4px;margin:4px 8px 4px 0;
+  font-size:0.82rem;font-weight:600;cursor:pointer;color:var(--text2);
+}
+.toggle-label input { accent-color: var(--primary); }
+.toggle-label input:checked + span { color: var(--primary); }
+</style>
+
+<script>
+let currentData = null;
+let mainChartInstance = null;
+let volumeChartInstance = null;
+let macdChartInstance = null;
+let rsiChartInstance = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('analyzeBtn').addEventListener('click', doAnalyze);
+  document.getElementById('tickerInput').addEventListener('keydown', e => { if(e.key==='Enter') doAnalyze(); });
+
+  // Toggle checkboxes re-render chart
+  document.querySelectorAll('.toggle-label input').forEach(cb => {
+    cb.addEventListener('change', () => { if(currentData) renderMainChart(currentData); });
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  if(params.get('ticker')) {
+    document.getElementById('tickerInput').value = params.get('ticker');
+    if(params.get('period')) document.getElementById('periodSelect').value = params.get('period');
+    doAnalyze();
+  }
+});
+
+async function doAnalyze() {
+  let ticker = document.getElementById('tickerInput').value.trim();
+  if(!ticker) return;
+  const period = document.getElementById('periodSelect').value;
+
+  // Handle Korean stock names
+  const krMap = {'삼성전자':'005930','SK하이닉스':'000660','NAVER':'035420','카카오':'035720','LG화학':'051910','LG에너지솔루션':'373220'};
+  if(krMap[ticker]) ticker = krMap[ticker];
+
+  document.getElementById('loadingBox').style.display = 'block';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('resultSection').style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/advanced/${encodeURIComponent(ticker)}?period=${period}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+    currentData = data;
+    renderAll(data);
+    document.getElementById('resultSection').style.display = 'block';
+    window.history.replaceState(null,'',`/advanced?ticker=${ticker}&period=${period}`);
+  } catch(err) {
+    document.getElementById('errorBox').textContent = err.message;
+    document.getElementById('errorBox').style.display = 'block';
+  } finally {
+    document.getElementById('loadingBox').style.display = 'none';
+  }
+}
+
+function renderAll(d) {
+  const isKRW = d.currency === 'KRW';
+  const priceStr = isKRW ? Math.round(d.close).toLocaleString()+'원' : '$'+d.close.toFixed(2);
+  document.getElementById('summaryGrid').innerHTML = `
+    <div class="summary-item"><div class="label">종목</div><div class="value" style="font-size:0.95rem;">${escapeHtml(d.name)}</div></div>
+    <div class="summary-item"><div class="label">현재가</div><div class="value">${priceStr}</div></div>
+    <div class="summary-item"><div class="label">변동률</div><div class="value ${getChangeClass(d.change_pct)}">${getChangeText(d.change_pct)}</div></div>
+    <div class="summary-item"><div class="label">기준일</div><div class="value" style="font-size:0.9rem;">${d.date}</div></div>
+  `;
+  document.getElementById('chartTitle').textContent = d.name + ' 가격 차트';
+
+  // Score
+  const se = document.getElementById('scoreRing');
+  se.textContent = d.score; se.className = 'score-ring '+getScoreClass(d.score);
+  document.getElementById('gradeText').innerHTML = getGradeBadge(d.grade);
+  document.getElementById('reasonsList').innerHTML = d.reasons.map(r=>`<li>${escapeHtml(r)}</li>`).join('');
+
+  // Fibonacci
+  if(d.fibonacci) {
+    document.getElementById('fibCard').style.display = 'block';
+    const fmt = isKRW ? v => Math.round(v).toLocaleString()+'원' : v => '$'+v.toFixed(2);
+    document.querySelector('#fibTable tbody').innerHTML = Object.entries(d.fibonacci).map(([k,v])=>
+      `<tr><td style="font-weight:600;">${k}</td><td>${v!=null?fmt(v):'-'}</td></tr>`).join('');
+  }
+
+  // Support/Resistance
+  if(d.support_resist) {
+    document.getElementById('srCard').style.display = 'block';
+    const fmt = isKRW ? v => Math.round(v).toLocaleString()+'원' : v => '$'+v.toFixed(2);
+    document.querySelector('#srTable tbody').innerHTML = Object.entries(d.support_resist).map(([k,v])=>
+      `<tr><td style="font-weight:600;color:${k.startsWith('R')?'#dc2626':k==='Pivot'?'var(--primary)':'#16a34a'}">${k}</td><td>${v!=null?fmt(v):'-'}</td></tr>`).join('');
+  }
+
+  // Indicators table
+  renderIndicators(d.indicators);
+  renderMainChart(d);
+  renderSubCharts(d);
+}
+
+function renderMainChart(d) {
+  if(mainChartInstance) mainChartInstance.destroy();
+  const c = d.chart;
+  const isDark = document.documentElement.getAttribute('data-theme')==='dark';
+  const gridColor = isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.05)';
+  const textColor = isDark?'#94a3b8':'#888';
+
+  const datasets = [{label:'종가',data:c.close,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,0.06)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}];
+
+  const tog = id => document.getElementById(id).checked;
+  if(tog('togSMA5')) datasets.push({label:'SMA5',data:c.sma5,borderColor:'#f472b6',borderWidth:1,pointRadius:0,fill:false,borderDash:[2,2]});
+  if(tog('togSMA10')) datasets.push({label:'SMA10',data:c.sma10,borderColor:'#a78bfa',borderWidth:1,pointRadius:0,fill:false,borderDash:[2,2]});
+  if(tog('togSMA20')) datasets.push({label:'SMA20',data:c.sma20,borderColor:'#f59e0b',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[4,2]});
+  if(tog('togSMA60')) datasets.push({label:'SMA60',data:c.sma60,borderColor:'#10b981',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[4,2]});
+  if(tog('togSMA120')) datasets.push({label:'SMA120',data:c.sma120,borderColor:'#ef4444',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[6,3]});
+  if(tog('togBB')) {
+    datasets.push({label:'BB Upper',data:c.bb_upper,borderColor:'rgba(168,85,247,0.4)',borderWidth:1,pointRadius:0,fill:false});
+    datasets.push({label:'BB Lower',data:c.bb_lower,borderColor:'rgba(168,85,247,0.4)',borderWidth:1,pointRadius:0,fill:'-1',backgroundColor:'rgba(168,85,247,0.04)'});
+  }
+
+  // Fibonacci horizontal lines via annotation-like approach (add as constant datasets)
+  if(tog('togFib') && d.fibonacci) {
+    const fibColors = ['#16a34a','#22c55e','#2563eb','#f59e0b','#ef4444','#dc2626','#991b1b'];
+    Object.entries(d.fibonacci).forEach(([k,v],i) => {
+      if(v!=null) datasets.push({label:'Fib '+k,data:Array(c.dates.length).fill(v),borderColor:fibColors[i%7],borderWidth:1,pointRadius:0,fill:false,borderDash:[2,4]});
+    });
+  }
+  if(tog('togSR') && d.support_resist) {
+    Object.entries(d.support_resist).forEach(([k,v]) => {
+      if(v!=null) {
+        const color = k.startsWith('R')?'rgba(220,38,38,0.5)':k==='Pivot'?'rgba(37,99,235,0.5)':'rgba(22,163,74,0.5)';
+        datasets.push({label:k,data:Array(c.dates.length).fill(v),borderColor:color,borderWidth:1,pointRadius:0,fill:false,borderDash:[6,4]});
+      }
+    });
+  }
+
+  mainChartInstance = new Chart(document.getElementById('mainChart'), {
+    type:'line', data:{labels:c.dates, datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:textColor,font:{size:10}}},tooltip:{titleFont:{size:11},bodyFont:{size:11},padding:8}},
+      scales:{
+        x:{ticks:{color:textColor,maxTicksLimit:12,font:{size:9}},grid:{color:gridColor}},
+        y:{ticks:{color:textColor,font:{size:9}},grid:{color:gridColor}},
+      },
+    },
+  });
+}
+
+function renderSubCharts(d) {
+  const c = d.chart;
+  const isDark = document.documentElement.getAttribute('data-theme')==='dark';
+  const gridColor = isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.05)';
+  const textColor = isDark?'#94a3b8':'#888';
+  const subOpts = {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:textColor,font:{size:10}}},tooltip:{titleFont:{size:11},bodyFont:{size:11},padding:6}},scales:{x:{ticks:{color:textColor,maxTicksLimit:8,font:{size:9}},grid:{display:false}},y:{ticks:{color:textColor,font:{size:9}},grid:{color:gridColor}}}};
+
+  // Volume
+  if(volumeChartInstance) volumeChartInstance.destroy();
+  const volColors = c.close.map((v,i)=>i===0?'rgba(37,99,235,0.5)':(v>=c.close[i-1]?'rgba(22,163,74,0.5)':'rgba(220,38,38,0.5)'));
+  volumeChartInstance = new Chart(document.getElementById('volumeChart'),{type:'bar',data:{labels:c.dates,datasets:[{label:'거래량',data:c.volume,backgroundColor:volColors,borderWidth:0}]},options:subOpts});
+
+  // MACD
+  if(macdChartInstance) macdChartInstance.destroy();
+  const histColors = c.macd_hist.map(h=>h>=0?'rgba(22,163,74,0.5)':'rgba(220,38,38,0.5)');
+  macdChartInstance = new Chart(document.getElementById('macdChart'),{type:'bar',data:{labels:c.dates,datasets:[
+    {type:'line',label:'MACD',data:c.macd,borderColor:'#2563eb',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,order:1},
+    {type:'line',label:'Signal',data:c.macd_signal,borderColor:'#f59e0b',borderWidth:1,pointRadius:0,tension:0.3,borderDash:[3,2],fill:false,order:2},
+    {label:'Hist',data:c.macd_hist,backgroundColor:histColors,borderWidth:0,order:3},
+  ]},options:subOpts});
+
+  // RSI
+  if(rsiChartInstance) rsiChartInstance.destroy();
+  rsiChartInstance = new Chart(document.getElementById('rsiChart'),{type:'line',data:{labels:c.dates,datasets:[
+    {label:'RSI',data:c.rsi,borderColor:'#8b5cf6',borderWidth:2,pointRadius:0,tension:0.3,fill:false},
+    {label:'70',data:Array(c.dates.length).fill(70),borderColor:'rgba(220,38,38,0.3)',borderWidth:1,pointRadius:0,borderDash:[4,4],fill:false},
+    {label:'30',data:Array(c.dates.length).fill(30),borderColor:'rgba(22,163,74,0.3)',borderWidth:1,pointRadius:0,borderDash:[4,4],fill:false},
+  ]},options:{...subOpts,scales:{...subOpts.scales,y:{...subOpts.scales.y,min:0,max:100}}}});
+}
+
+function renderIndicators(ind) {
+  const rows = [
+    ['SMA 5',ind.SMA5,null],['SMA 10',ind.SMA10,null],['SMA 20',ind.SMA20,null],['SMA 60',ind.SMA60,null],['SMA 120',ind.SMA120,null],
+    ['RSI',ind.RSI,ind.RSI!=null?(ind.RSI<30?'bullish':ind.RSI>70?'bearish':'neutral'):null],
+    ['MACD',ind.MACD,ind.MACD!=null&&ind.MACD_Signal!=null?(ind.MACD>ind.MACD_Signal?'bullish':'bearish'):null],
+    ['MACD Signal',ind.MACD_Signal,null],['MACD Hist',ind.MACD_Hist,ind.MACD_Hist!=null?(ind.MACD_Hist>0?'bullish':'bearish'):null],
+    ['Stoch K',ind.Stoch_K,ind.Stoch_K!=null?(ind.Stoch_K<20?'bullish':ind.Stoch_K>80?'bearish':'neutral'):null],
+    ['Stoch D',ind.Stoch_D,null],['BB Upper',ind.BB_Upper,null],['BB Lower',ind.BB_Lower,null],
+    ['ATR',ind.ATR,null],['ADX',ind.ADX,ind.ADX!=null?(ind.ADX>25?'bullish':'neutral'):null],
+    ['OBV',ind.OBV,null],['Vol Ratio',ind.Volume_Ratio,ind.Volume_Ratio!=null?(ind.Volume_Ratio>1.5?'bullish':ind.Volume_Ratio<0.5?'bearish':'neutral'):null],
+  ];
+  const sig={bullish:'매수',bearish:'매도',neutral:'중립'};
+  document.querySelector('#indicatorTable tbody').innerHTML = rows.map(([n,v,s])=>{
+    const vs=v!=null?formatNumber(v,4):'-';const sc=s?`signal-${s}`:'';const st=s?sig[s]:'-';
+    return `<tr><td>${escapeHtml(n)}</td><td>${vs}</td><td class="${sc}">${st}</td></tr>`;
+  }).join('');
+}
+</script>
+{% endblock %}
