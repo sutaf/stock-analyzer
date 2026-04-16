@@ -262,7 +262,13 @@ async function analyze(ticker) {
   document.getElementById('watchlistBtn').style.display = 'none';
 
   try {
-    const res = await fetch(`/api/analyze/us/${encodeURIComponent(ticker)}`);
+    let res = await fetch(`/api/analyze/us/${encodeURIComponent(ticker)}`);
+    // Retry once after delay on rate limit
+    if (res.status === 429) {
+      document.querySelector('#loadingBox p').textContent = '요청 제한... 10초 후 재시도합니다.';
+      await new Promise(r => setTimeout(r, 10000));
+      res = await fetch(`/api/analyze/us/${encodeURIComponent(ticker)}`);
+    }
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 

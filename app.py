@@ -13,6 +13,32 @@ import time as _time
 
 app = Flask(__name__)
 
+# ─── Simple in-memory cache ───
+_cache = {}
+_CACHE_TTL = 300  # 5 minutes
+
+
+def cache_get(key):
+    """Get value from cache if not expired."""
+    if key in _cache:
+        val, ts = _cache[key]
+        if _time.time() - ts < _CACHE_TTL:
+            return val
+        del _cache[key]
+    return None
+
+
+def cache_set(key, value):
+    """Set value in cache with timestamp."""
+    _cache[key] = (value, _time.time())
+    # Evict old entries if cache grows too large
+    if len(_cache) > 200:
+        cutoff = _time.time() - _CACHE_TTL
+        expired = [k for k, (_, ts) in _cache.items() if ts < cutoff]
+        for k in expired:
+            del _cache[k]
+
+
 # ─── Translation dictionaries ───
 _TR_SECTOR = {
     "Technology": "기술", "Healthcare": "헬스케어", "Financial Services": "금융",
@@ -1223,6 +1249,13 @@ def advanced_page():
 def analyze_us(ticker):
     try:
         ticker = ticker.upper().strip()
+
+        # Check cache
+        cache_key = f"us_{ticker}"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         stock = yf.Ticker(ticker)
         df = stock.history(period="1y")
 
@@ -1241,7 +1274,7 @@ def analyze_us(ticker):
         # Fundamental analysis
         fundamental = fetch_fundamental(ticker)
 
-        return jsonify({
+        result = {
             "ticker": ticker,
             "name": info.get("shortName", info.get("longName", ticker)),
             "close": close_price,
@@ -1258,10 +1291,15 @@ def analyze_us(ticker):
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
             "fundamental": fundamental,
-        })
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        if "Too Many Requests" in err_msg or "Rate" in err_msg:
+            return jsonify({"error": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요. (약 1~2분)"}), 429
+        return jsonify({"error": err_msg}), 500
 
 
 @app.route("/api/news/us/<ticker>")
@@ -1278,19 +1316,36 @@ def community_api(ticker):
     """Community sentiment analysis endpoint."""
     try:
         ticker = ticker.strip()
+
+        cache_key = f"comm_{ticker}"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         # Detect Korean stock: 6-digit code or .KS/.KQ suffix
         code = ticker.replace('.KS', '').replace('.KQ', '')
         is_kr = code.isdigit() and len(code) == 6
         result = fetch_community_sentiment(ticker, is_kr=is_kr)
+        cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        if "Too Many Requests" in err_msg or "Rate" in err_msg:
+            return jsonify({"error": "커뮤니티 데이터 요청 제한. 잠시 후 다시 시도해주세요."}), 429
+        return jsonify({"error": err_msg}), 500
 
 
 @app.route("/api/analyze/kr/<code>")
 def analyze_kr(code):
     try:
         code = code.strip()
+
+        # Check cache
+        cache_key = f"kr_{code}"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         yf_ticker = get_kr_ticker(code)
         stock = yf.Ticker(yf_ticker)
         df = stock.history(period="1y")
@@ -1323,7 +1378,7 @@ def analyze_kr(code):
         # Fundamental analysis
         fundamental = fetch_fundamental(yf_ticker)
 
-        return jsonify({
+        result = {
             "code": code,
             "ticker": yf_ticker,
             "name": name,
@@ -1340,10 +1395,15 @@ def analyze_kr(code):
             "pe_ratio": safe_float(info.get("trailingPE")),
             "sector": info.get("sector", ""),
             "fundamental": fundamental,
-        })
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        if "Too Many Requests" in err_msg or "Rate" in err_msg:
+            return jsonify({"error": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요. (약 1~2분)"}), 429
+        return jsonify({"error": err_msg}), 500
 
 
 @app.route("/api/news/kr/<code>")
@@ -1450,6 +1510,12 @@ def compare_stocks():
 def dashboard():
     """Get dashboard data - top US and KR recommendations."""
     try:
+        # Dashboard cache: 10 minutes
+        cache_key = "dashboard"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
         us_tickers = ["AAPL", "NVDA", "GOOGL", "MSFT", "TSLA", "AMZN"]
         us_results = []
         for t in us_tickers:
@@ -1508,12 +1574,17 @@ def dashboard():
         us_results.sort(key=lambda x: x["score"], reverse=True)
         kr_results.sort(key=lambda x: x["score"], reverse=True)
 
-        return jsonify({
+        result = {
             "us": us_results[:5],
             "kr": kr_results[:5],
-        })
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err_msg = str(e)
+        if "Too Many Requests" in err_msg or "Rate" in err_msg:
+            return jsonify({"error": "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."}), 429
+        return jsonify({"error": err_msg}), 500
 
 
 @app.route("/api/advanced/<ticker>")
