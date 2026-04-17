@@ -10,6 +10,14 @@ import math
 import urllib.request
 import urllib.parse
 import time as _time
+import os
+
+# Anthropic Claude API (optional - for investment report generation)
+try:
+    import anthropic
+    _ANTHROPIC_AVAILABLE = True
+except Exception:
+    _ANTHROPIC_AVAILABLE = False
 
 # Use curl_cffi session with Chrome TLS fingerprint to bypass Yahoo's bot detection
 try:
@@ -1799,6 +1807,174 @@ def advanced_analyze(ticker):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+# ─── Investment Report (Claude AI) ───
+
+def _format_indicators_for_report(indicators):
+    """Build a compact technical-indicators summary for the prompt."""
+    def fmt(v):
+        if v is None:
+            return "N/A"
+        return f"{v:.2f}" if isinstance(v, (int, float)) else str(v)
+    keys = [
+        ("RSI(14)", "RSI"), ("MACD", "MACD"), ("MACD Signal", "MACD_Signal"),
+        ("SMA20", "SMA20"), ("SMA60", "SMA60"), ("SMA120", "SMA120"),
+        ("Stochastic K", "Stoch_K"), ("Stochastic D", "Stoch_D"),
+        ("ADX", "ADX"), ("ATR", "ATR"), ("Volume Ratio", "Volume_Ratio"),
+    ]
+    return "\n".join(f"- {label}: {fmt(indicators.get(key))}" for label, key in keys)
+
+
+def _format_fundamental_for_report(fund):
+    """Build a compact fundamental summary for the prompt."""
+    if not fund or fund.get("error"):
+        return "정성적 데이터 없음"
+    f = fund.get("fundamentals", {}) or {}
+    p = fund.get("profitability", {}) or {}
+    h = fund.get("health", {}) or {}
+    a = fund.get("analyst", {}) or {}
+    def pct(v):
+        return f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "N/A"
+    def num(v):
+        return f"{v:.2f}" if isinstance(v, (int, float)) else "N/A"
+    return (
+        f"- PER(Trailing/Forward): {num(f.get('pe_ratio'))} / {num(f.get('forward_pe'))}\n"
+        f"- PBR: {num(f.get('pb_ratio'))}, PSR: {num(f.get('ps_ratio'))}\n"
+        f"- 순이익률: {pct(p.get('profit_margin'))}, ROE: {pct(p.get('roe'))}\n"
+        f"- 매출성장률: {pct(p.get('revenue_growth'))}, 이익성장률: {pct(p.get('earnings_growth'))}\n"
+        f"- 부채비율(D/E): {num(h.get('debt_to_equity'))}, 유동비율: {num(h.get('current_ratio'))}\n"
+        f"- 애널리스트 의견: {a.get('recommendation', 'N/A')} ({a.get('num_analysts') or 0}명)\n"
+        f"- 목표가(평균/최고/최저): {num(a.get('target_mean'))} / {num(a.get('target_high'))} / {num(a.get('target_low'))}"
+    )
+
+
+@app.route("/api/report/<ticker>")
+def generate_report(ticker):
+    """Generate an investment analysis report using Claude."""
+    if not _ANTHROPIC_AVAILABLE:
+        return jsonify({"error": "Anthropic SDK가 설치되지 않았습니다."}), 500
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다. Render 대시보드에서 환경변수를 추가해주세요."}), 500
+
+    try:
+        ticker = ticker.strip().upper()
+
+        # Report cache: 1 hour (more aggressive caching since reports cost API calls)
+        cache_key = f"report_{ticker}"
+        if cache_key in _cache:
+            val, ts = _cache[cache_key]
+            if _time.time() - ts < 3600:
+                return jsonify({"report": val, "cached": True})
+
+        # Reuse analysis cache if available; otherwise analyze fresh
+        is_kr = ticker.isdigit() and len(ticker) == 6
+        analysis_key = f"kr_{ticker}" if is_kr else f"us_{ticker}"
+        analysis = cache_get(analysis_key)
+
+        if not analysis:
+            # Analyze synchronously
+            if is_kr:
+                yf_ticker = get_kr_ticker(ticker)
+                stock, df = yf_fetch_with_retry(yf_ticker)
+                if df.empty:
+                    yf_ticker = f"{ticker}.KQ"
+                    stock, df = yf_fetch_with_retry(yf_ticker)
+            else:
+                yf_ticker = ticker
+                stock, df = yf_fetch_with_retry(yf_ticker)
+
+            if df.empty:
+                return jsonify({"error": f"'{ticker}' 데이터를 찾을 수 없습니다."}), 404
+
+            info = yf_get_info_safe(stock)
+            indicators = compute_indicators(df)
+            score, grade, reasons = score_stock(indicators)
+            fundamental = fetch_fundamental_from_info(info)
+            close_price = safe_float(df["Close"].iloc[-1])
+            prev_close = safe_float(df["Close"].iloc[-2]) if len(df) > 1 else close_price
+            change_pct = round((close_price - prev_close) / prev_close * 100, 2) if prev_close else 0
+
+            analysis = {
+                "ticker": yf_ticker,
+                "name": info.get("shortName", info.get("longName", ticker)),
+                "close": close_price,
+                "change_pct": change_pct,
+                "score": score,
+                "grade": grade,
+                "reasons": reasons,
+                "indicators": indicators,
+                "fundamental": fundamental,
+                "currency": "KRW" if is_kr else info.get("currency", "USD"),
+                "sector": info.get("sector", ""),
+                "industry": info.get("industry", ""),
+            }
+
+        # Build the prompt
+        currency_symbol = "₩" if analysis.get("currency") == "KRW" else "$"
+        prompt = f"""다음은 주식 기술적/정성적 분석 데이터입니다. 이 데이터를 바탕으로 투자 판단에 도움이 되는 **한국어 투자 분석 리포트**를 작성해주세요.
+
+## 종목 정보
+- 이름: {analysis.get('name', ticker)}
+- 티커: {analysis.get('ticker', ticker)}
+- 현재가: {currency_symbol}{analysis.get('close')}
+- 변동률: {analysis.get('change_pct')}%
+- 섹터/산업: {analysis.get('sector', 'N/A')} / {analysis.get('industry', 'N/A')}
+
+## 기술적 분석 점수: {analysis.get('score')}/100 ({analysis.get('grade')})
+
+### 기술 지표
+{_format_indicators_for_report(analysis.get('indicators', {}))}
+
+### 기술적 분석 근거
+{chr(10).join('- ' + r for r in (analysis.get('reasons') or [])[:8])}
+
+## 정성적 분석
+{_format_fundamental_for_report(analysis.get('fundamental', {}))}
+
+---
+
+**리포트 작성 가이드:**
+1. **요약** — 3-4줄로 이 종목의 현재 상황을 정리
+2. **강점** — 긍정적 시그널과 이유 (3가지)
+3. **약점** — 주의해야 할 리스크 (3가지)
+4. **투자 전략** — 매수/보유/매도 중 어떤 스탠스가 적합한지, 진입/이탈 타이밍 제안
+5. **결론** — 한 문단 투자의견
+
+마크다운 형식으로 작성하되, 중립적이고 균형 잡힌 분석을 제공해주세요. 마지막에 반드시 "이 리포트는 참고용이며 투자 책임은 본인에게 있습니다." 문구를 포함해주세요."""
+
+        # Call Claude
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        report_text = next((b.text for b in response.content if b.type == "text"), "")
+
+        if not report_text:
+            return jsonify({"error": "리포트 생성에 실패했습니다."}), 500
+
+        cache_set(cache_key, report_text)
+        return jsonify({
+            "report": report_text,
+            "cached": False,
+            "usage": {
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
+            },
+        })
+
+    except anthropic.AuthenticationError:
+        return jsonify({"error": "API Key가 유효하지 않습니다. Render 환경변수의 ANTHROPIC_API_KEY를 확인해주세요."}), 500
+    except anthropic.RateLimitError:
+        return jsonify({"error": "Claude API 요청 제한. 잠시 후 다시 시도해주세요."}), 429
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"리포트 생성 오류: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

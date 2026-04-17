@@ -69,6 +69,24 @@
       </div>
     </div>
 
+    <!-- AI Report button -->
+    <div style="margin-bottom: 16px; text-align: center;">
+      <button class="btn btn-primary" id="reportBtn" style="background: linear-gradient(135deg, #8b5cf6 0%, #2563eb 100%);">
+        🤖 AI 투자 리포트 생성
+      </button>
+    </div>
+
+    <!-- AI Report display -->
+    <div id="reportSection" class="card" style="display: none; margin-bottom: 24px;">
+      <h3 style="font-weight: 700; margin-bottom: 12px;">🤖 AI 투자 리포트</h3>
+      <div id="reportLoading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p style="margin-top: 12px;">Claude AI가 리포트 작성 중...</p>
+      </div>
+      <div id="reportError" class="error-msg" style="display: none;"></div>
+      <div id="reportContent" style="line-height: 1.8; font-size: 0.95rem;"></div>
+    </div>
+
     <div class="tabs">
       <button class="tab-btn active" data-tab="chart">차트</button>
       <button class="tab-btn" data-tab="indicators">기술지표</button>
@@ -210,6 +228,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // URL param
   const params = new URLSearchParams(window.location.search);
   if (params.get('code')) analyzeKR(params.get('code'));
+
+  // AI Report button
+  document.getElementById('reportBtn').addEventListener('click', () => {
+    if (!currentData) return;
+    generateReport(currentData.code);
+  });
 
   // Watchlist button
   document.getElementById('watchlistBtn').addEventListener('click', () => {
@@ -604,6 +628,58 @@ async function loadNews(code) {
         <div class="meta">${escapeHtml(n.publisher)} ${n.date ? '&middot; ' + escapeHtml(n.date) : ''}</div>
       </a>`).join('');
   } catch (err) { el.innerHTML = '<p style="color:var(--text3)">뉴스를 불러올 수 없습니다.</p>'; }
+}
+
+async function generateReport(ticker) {
+  const section = document.getElementById('reportSection');
+  const loading = document.getElementById('reportLoading');
+  const errorBox = document.getElementById('reportError');
+  const content = document.getElementById('reportContent');
+  const btn = document.getElementById('reportBtn');
+
+  section.style.display = 'block';
+  loading.style.display = 'block';
+  errorBox.style.display = 'none';
+  content.innerHTML = '';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const res = await fetch(`/api/report/${encodeURIComponent(ticker)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    content.innerHTML = renderMarkdown(data.report);
+
+    if (data.usage && !data.cached) {
+      const tokens = data.usage.input_tokens + data.usage.output_tokens;
+      content.innerHTML += `<p style="margin-top:16px;color:var(--text3);font-size:0.75rem;text-align:right;">토큰 사용량: ${tokens.toLocaleString()}</p>`;
+    }
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.style.display = 'block';
+  } finally {
+    loading.style.display = 'none';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+}
+
+function renderMarkdown(md) {
+  let html = escapeHtml(md);
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin-top:20px;margin-bottom:8px;font-weight:700;">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 style="margin-top:24px;margin-bottom:12px;font-weight:800;color:var(--primary);">$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2 style="margin-top:24px;margin-bottom:12px;font-weight:900;">$1</h2>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (m) => '<ul style="margin:8px 0;padding-left:24px;">' + m + '</ul>');
+  html = html.replace(/\n\n/g, '</p><p style="margin:12px 0;">');
+  html = '<p style="margin:12px 0;">' + html + '</p>';
+  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
+  return html;
 }
 
 async function loadCommunity(ticker) {
