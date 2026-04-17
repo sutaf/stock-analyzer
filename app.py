@@ -11,6 +11,13 @@ import urllib.request
 import urllib.parse
 import time as _time
 
+# Use curl_cffi session with Chrome TLS fingerprint to bypass Yahoo's bot detection
+try:
+    from curl_cffi import requests as curl_requests
+    _yf_session = curl_requests.Session(impersonate="chrome")
+except Exception:
+    _yf_session = None
+
 app = Flask(__name__)
 
 # ─── Simple in-memory cache ───
@@ -39,9 +46,20 @@ def cache_set(key, value):
             del _cache[k]
 
 
+def _make_ticker(ticker_symbol):
+    """Create a yf.Ticker with curl_cffi session if available."""
+    if _yf_session is not None:
+        try:
+            return yf.Ticker(ticker_symbol, session=_yf_session)
+        except TypeError:
+            # Older yfinance versions may not accept session kwarg
+            pass
+    return yf.Ticker(ticker_symbol)
+
+
 def yf_fetch_with_retry(ticker_symbol, period="1y", max_retries=3):
     """Fetch yfinance data with retry and backoff."""
-    stock = yf.Ticker(ticker_symbol)
+    stock = _make_ticker(ticker_symbol)
     last_err = None
     for attempt in range(max_retries):
         try:
@@ -396,7 +414,7 @@ def get_chart_data(df, limit=120):
 def fetch_news(ticker_symbol):
     """Fetch news from yfinance."""
     try:
-        ticker = yf.Ticker(ticker_symbol)
+        ticker = _make_ticker(ticker_symbol)
         news = ticker.news or []
         results = []
         for item in news[:8]:
@@ -949,7 +967,7 @@ def fetch_fundamental_from_info(info):
 def fetch_fundamental(ticker_symbol):
     """Fetch fundamental / qualitative analysis data from yfinance."""
     try:
-        stock = yf.Ticker(ticker_symbol)
+        stock = _make_ticker(ticker_symbol)
         info = yf_get_info_safe(stock)
         return _build_fundamental(info)
     except Exception as e:
@@ -1503,19 +1521,17 @@ def compare_stocks():
                         kr_name = item[1]
                         break
 
-            stock = yf.Ticker(yf_ticker)
-            df = stock.history(period="1y")
+            stock, df = yf_fetch_with_retry(yf_ticker)
 
             if df.empty and is_kr:
                 yf_ticker = f"{t}.KQ"
-                stock = yf.Ticker(yf_ticker)
-                df = stock.history(period="1y")
+                stock, df = yf_fetch_with_retry(yf_ticker)
 
             if df.empty:
                 results.append({"ticker": t, "error": "데이터 없음"})
                 continue
 
-            info = stock.info or {}
+            info = yf_get_info_safe(stock)
             indicators = compute_indicators(df)
             score, grade, reasons = score_stock(indicators)
             chart = get_chart_data(df, limit=60)
