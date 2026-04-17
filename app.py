@@ -2085,7 +2085,9 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         # Call Claude with web_search tool for live community sentiment.
         # Use streaming to avoid buffering the full response in memory at once
         # (Render free tier has only 512MB and web search responses are large).
-        model_id = "claude-opus-4-7"
+        # Sonnet 4.6 chosen over Opus 4.7 to fit the RAM budget while keeping
+        # adaptive thinking + web search enabled.
+        model_id = "claude-sonnet-4-6"
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
@@ -2137,16 +2139,16 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 pass
             report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
 
-        # Compute cost (Opus 4.7: $5/M input, $25/M output)
+        # Compute cost (Sonnet 4.6: $3/M input, $15/M output)
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        cost_usd = (input_tokens * 5 + output_tokens * 25) / 1_000_000
+        cost_usd = (input_tokens * 3 + output_tokens * 15) / 1_000_000
         cost_krw = round(cost_usd * 1400)
 
         result = {
             "report": report_text,
             "cached": False,
-            "model": "Claude Opus 4.7",
+            "model": "Claude Sonnet 4.6",
             "model_id": model_id,
             "usage": {
                 "input_tokens": input_tokens,
