@@ -133,5 +133,33 @@ function getScoreClass(score) {
   return 'low';
 }
 
+// ─── Keep-alive ping (prevents Render free-tier from sleeping while user is active) ───
+// Render free instance spins down after ~15 min of no requests. Ping every 10 min
+// while the tab is visible to keep it warm during active use. (For 24/7 uptime,
+// set up an external cron service like UptimeRobot — see README.)
+(function () {
+  const PING_INTERVAL = 10 * 60 * 1000; // 10 minutes
+  let lastPing = Date.now();
+
+  function ping() {
+    // Skip if tab is hidden — no need to keep warm for invisible tabs
+    if (document.hidden) return;
+    fetch('/health', { method: 'GET', cache: 'no-store' })
+      .then(() => { lastPing = Date.now(); })
+      .catch(() => {});
+  }
+
+  // Initial ping on page load
+  setTimeout(ping, 30 * 1000);  // 30s after load
+  setInterval(ping, PING_INTERVAL);
+
+  // Also ping when tab regains visibility if it's been a while
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Date.now() - lastPing > PING_INTERVAL) {
+      ping();
+    }
+  });
+})();
+
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', initTheme);

@@ -1305,6 +1305,20 @@ def get_kr_ticker(code):
 
 # ─── Routes ───
 
+_STARTUP_TIME = _time.time()
+
+
+@app.route("/health")
+@app.route("/ping")
+def health():
+    """Lightweight health-check endpoint for keep-alive pings.
+    No heavy imports or API calls — returns in <10ms."""
+    return jsonify({
+        "status": "ok",
+        "uptime_seconds": round(_time.time() - _STARTUP_TIME),
+    })
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
