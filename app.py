@@ -14,9 +14,19 @@ import time as _time
 # Use curl_cffi session with Chrome TLS fingerprint to bypass Yahoo's bot detection
 try:
     from curl_cffi import requests as curl_requests
-    _yf_session = curl_requests.Session(impersonate="chrome")
+    _CURL_CFFI_AVAILABLE = True
 except Exception:
-    _yf_session = None
+    _CURL_CFFI_AVAILABLE = False
+
+
+def _new_session():
+    """Create a fresh curl_cffi session with Chrome impersonation."""
+    if _CURL_CFFI_AVAILABLE:
+        try:
+            return curl_requests.Session(impersonate="chrome")
+        except Exception:
+            pass
+    return None
 
 app = Flask(__name__)
 
@@ -46,30 +56,40 @@ def cache_set(key, value):
             del _cache[k]
 
 
-def _make_ticker(ticker_symbol):
+def _make_ticker(ticker_symbol, session=None):
     """Create a yf.Ticker with curl_cffi session if available."""
-    if _yf_session is not None:
+    sess = session if session is not None else _new_session()
+    if sess is not None:
         try:
-            return yf.Ticker(ticker_symbol, session=_yf_session)
+            return yf.Ticker(ticker_symbol, session=sess)
         except TypeError:
-            # Older yfinance versions may not accept session kwarg
             pass
     return yf.Ticker(ticker_symbol)
 
 
 def yf_fetch_with_retry(ticker_symbol, period="1y", max_retries=3):
-    """Fetch yfinance data with retry and backoff."""
-    stock = _make_ticker(ticker_symbol)
+    """Fetch yfinance data with retry and backoff. Retries on empty data too."""
     last_err = None
     for attempt in range(max_retries):
         try:
+            # Fresh session per attempt to avoid stale/blocked sessions
+            stock = _make_ticker(ticker_symbol)
             df = stock.history(period=period)
-            return stock, df
+            if df is not None and not df.empty:
+                return stock, df
+            # Empty: retry with new session
+            last_err = RuntimeError(f"Empty data for {ticker_symbol}")
         except Exception as e:
             last_err = e
-            if attempt < max_retries - 1:
-                _time.sleep(2 ** attempt)  # 1s, 2s backoff
-    raise last_err
+        if attempt < max_retries - 1:
+            _time.sleep(1 + attempt)
+    # Final: return stock + empty df so caller can see empty
+    stock = _make_ticker(ticker_symbol)
+    try:
+        df = stock.history(period=period)
+    except Exception:
+        df = pd.DataFrame()
+    return stock, df
 
 
 def yf_get_info_safe(stock):
