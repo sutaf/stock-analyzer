@@ -39,6 +39,29 @@ def cache_set(key, value):
             del _cache[k]
 
 
+def yf_fetch_with_retry(ticker_symbol, period="1y", max_retries=3):
+    """Fetch yfinance data with retry and backoff."""
+    stock = yf.Ticker(ticker_symbol)
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            df = stock.history(period=period)
+            return stock, df
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                _time.sleep(2 ** attempt)  # 1s, 2s backoff
+    raise last_err
+
+
+def yf_get_info_safe(stock):
+    """Get stock.info with error handling - returns empty dict on failure."""
+    try:
+        return stock.info or {}
+    except Exception:
+        return {}
+
+
 # ─── Translation dictionaries ───
 _TR_SECTOR = {
     "Technology": "기술", "Healthcare": "헬스케어", "Financial Services": "금융",
@@ -914,12 +937,29 @@ def fetch_community_sentiment(ticker, is_kr=False):
         }
 
 
+def fetch_fundamental_from_info(info):
+    """Build fundamental data from an already-fetched info dict (no extra API call)."""
+    try:
+        return _build_fundamental(info)
+    except Exception as e:
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
 def fetch_fundamental(ticker_symbol):
     """Fetch fundamental / qualitative analysis data from yfinance."""
     try:
         stock = yf.Ticker(ticker_symbol)
-        info = stock.info or {}
+        info = yf_get_info_safe(stock)
+        return _build_fundamental(info)
+    except Exception as e:
+        traceback.print_exc()
+        return {"error": str(e)}
 
+
+def _build_fundamental(info):
+    """Build fundamental analysis result from info dict."""
+    try:
         # ── Basic financials ──
         fundamentals = {
             "market_cap": info.get("marketCap"),
@@ -1256,13 +1296,12 @@ def analyze_us(ticker):
         if cached:
             return jsonify(cached)
 
-        stock = yf.Ticker(ticker)
-        df = stock.history(period="1y")
+        stock, df = yf_fetch_with_retry(ticker)
 
         if df.empty:
             return jsonify({"error": f"'{ticker}' 데이터를 찾을 수 없습니다."}), 404
 
-        info = stock.info or {}
+        info = yf_get_info_safe(stock)
         indicators = compute_indicators(df)
         score, grade, reasons = score_stock(indicators)
         chart = get_chart_data(df)
@@ -1271,8 +1310,8 @@ def analyze_us(ticker):
         prev_close = safe_float(df["Close"].iloc[-2]) if len(df) > 1 else close_price
         change_pct = round((close_price - prev_close) / prev_close * 100, 2) if prev_close else 0
 
-        # Fundamental analysis
-        fundamental = fetch_fundamental(ticker)
+        # Fundamental analysis - reuse same stock object
+        fundamental = fetch_fundamental_from_info(info)
 
         result = {
             "ticker": ticker,
@@ -1347,19 +1386,17 @@ def analyze_kr(code):
             return jsonify(cached)
 
         yf_ticker = get_kr_ticker(code)
-        stock = yf.Ticker(yf_ticker)
-        df = stock.history(period="1y")
+        stock, df = yf_fetch_with_retry(yf_ticker)
 
         if df.empty:
             # Try KOSDAQ
             yf_ticker = f"{code}.KQ"
-            stock = yf.Ticker(yf_ticker)
-            df = stock.history(period="1y")
+            stock, df = yf_fetch_with_retry(yf_ticker)
 
         if df.empty:
             return jsonify({"error": f"'{code}' 데이터를 찾을 수 없습니다."}), 404
 
-        info = stock.info or {}
+        info = yf_get_info_safe(stock)
         indicators = compute_indicators(df)
         score, grade, reasons = score_stock(indicators)
         chart = get_chart_data(df)
@@ -1375,8 +1412,8 @@ def analyze_kr(code):
                 name = item[1]
                 break
 
-        # Fundamental analysis
-        fundamental = fetch_fundamental(yf_ticker)
+        # Fundamental analysis - reuse info dict
+        fundamental = fetch_fundamental_from_info(info)
 
         result = {
             "code": code,
@@ -1510,8 +1547,12 @@ def compare_stocks():
 def dashboard():
     """Get dashboard data - top US and KR recommendations."""
     try:
-        # Dashboard cache: 10 minutes
+        # Dashboard cache: use longer TTL (10 minutes)
         cache_key = "dashboard"
+        if cache_key in _cache:
+            val, ts = _cache[cache_key]
+            if _time.time() - ts < 600:  # 10 min for dashboard
+                return jsonify(val)
         cached = cache_get(cache_key)
         if cached:
             return jsonify(cached)
@@ -1520,11 +1561,10 @@ def dashboard():
         us_results = []
         for t in us_tickers:
             try:
-                stock = yf.Ticker(t)
-                df = stock.history(period="6mo")
+                stock, df = yf_fetch_with_retry(t, period="6mo")
                 if df.empty:
                     continue
-                info = stock.info or {}
+                info = yf_get_info_safe(stock)
                 indicators = compute_indicators(df)
                 score, grade, reasons = score_stock(indicators)
                 close_price = safe_float(df["Close"].iloc[-1])
@@ -1538,6 +1578,7 @@ def dashboard():
                     "close": close_price,
                     "change_pct": change_pct,
                 })
+                _time.sleep(0.3)  # Throttle between requests
             except Exception:
                 continue
 
@@ -1546,8 +1587,7 @@ def dashboard():
         for code in kr_codes:
             try:
                 yf_ticker = get_kr_ticker(code)
-                stock = yf.Ticker(yf_ticker)
-                df = stock.history(period="6mo")
+                stock, df = yf_fetch_with_retry(yf_ticker, period="6mo")
                 if df.empty:
                     continue
                 indicators = compute_indicators(df)
@@ -1568,6 +1608,7 @@ def dashboard():
                     "close": close_price,
                     "change_pct": change_pct,
                 })
+                _time.sleep(0.3)  # Throttle between requests
             except Exception:
                 continue
 
@@ -1601,18 +1642,16 @@ def advanced_analyze(ticker):
             is_kr = True
             yf_ticker = get_kr_ticker(ticker)
 
-        stock = yf.Ticker(yf_ticker)
-        df = stock.history(period=period)
+        stock, df = yf_fetch_with_retry(yf_ticker, period=period)
 
         if df.empty and is_kr:
             yf_ticker = f"{ticker}.KQ"
-            stock = yf.Ticker(yf_ticker)
-            df = stock.history(period=period)
+            stock, df = yf_fetch_with_retry(yf_ticker, period=period)
 
         if df.empty:
             return jsonify({"error": f"'{ticker}' 데이터를 찾을 수 없습니다."}), 404
 
-        info = stock.info or {}
+        info = yf_get_info_safe(stock)
         close = df["Close"]
         high = df["High"]
         low = df["Low"]
