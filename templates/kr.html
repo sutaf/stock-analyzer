@@ -683,6 +683,9 @@ async function generateReport(ticker) {
       const noiseLabel = data.noise_score < 35 ? '낮음' : data.noise_score < 65 ? '중간' : '높음';
       parts.push(`<span class="noise-indicator ${noiseCls}">📊 노이즈 ${data.noise_score} (${noiseLabel})</span>`);
     }
+    if (data.web_search_used) {
+      parts.push(`<span class="noise-indicator low" style="background:#dbeafe;color:#1e40af;">🔎 실시간 웹검색</span>`);
+    }
     if (data.cached) {
       parts.push(`<span class="cached-badge">⚡ 캐시됨</span>`);
     }
