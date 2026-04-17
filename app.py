@@ -1945,13 +1945,15 @@ def generate_report(ticker):
 
 마크다운 형식으로 작성하되, 중립적이고 균형 잡힌 분석을 제공해주세요. 마지막에 반드시 "이 리포트는 참고용이며 투자 책임은 본인에게 있습니다." 문구를 포함해주세요."""
 
-        # Call Claude
+        # Call Claude with adaptive thinking for deeper analysis
         client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=4096,
+        with client.messages.stream(
+            model="claude-opus-4-7",
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
             messages=[{"role": "user", "content": prompt}],
-        )
+        ) as stream:
+            response = stream.get_final_message()
 
         report_text = next((b.text for b in response.content if b.type == "text"), "")
 
