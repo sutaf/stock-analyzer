@@ -1,0 +1,25 @@
+name: Keep Render service warm
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub scheduled workflows can be delayed during
+    # peak traffic, so this is best-effort — for strict uptime add a second
+    # external pinger (UptimeRobot, cron-job.org, etc.).
+    - cron: '*/10 * * * *'
+  workflow_dispatch:  # allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health endpoint
+        run: |
+          echo "Pinging StockPulse at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          response=$(curl -s -o /tmp/body.txt -w "%{http_code}" --max-time 60 https://stockpulse-cen4.onrender.com/health)
+          echo "HTTP status: $response"
+          cat /tmp/body.txt
+          echo
+          if [ "$response" != "200" ]; then
+            echo "Unexpected status code"
+            exit 1
+          fi
