@@ -2082,44 +2082,43 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 del _cache[k]
         gc.collect()
 
-        # Call Claude with web_search tool for live community sentiment.
-        # Use streaming to avoid buffering the full response in memory at once
-        # (Render free tier has only 512MB and web search responses are large).
-        # Sonnet 4.6 chosen over Opus 4.7 to fit the RAM budget while keeping
-        # adaptive thinking + web search enabled.
-        model_id = "claude-sonnet-4-6"
+        # Call Claude with web_search + adaptive thinking. Runs on Cloud Run
+        # with 1GB+ RAM so we can afford the full Opus 4.7 + thinking budget.
+        model_id = "claude-opus-4-7"
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
-            # Cap server-side search loop to keep response size within 512MB RAM
-            "max_uses": 3,
+            "max_uses": 5,
         }]
         client = anthropic.Anthropic(api_key=api_key)
         messages = [{"role": "user", "content": prompt}]
-        # No thinking: thinking tokens + web_search response blow 512MB RAM
         with client.messages.stream(
             model=model_id,
-            max_tokens=4000,
+            max_tokens=8000,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
             tools=tools,
             messages=messages,
         ) as stream:
             response = stream.get_final_message()
 
-        # Single pause_turn continuation only (additional rounds blow the RAM budget)
-        if response.stop_reason == "pause_turn":
+        # Handle server-side tool iteration limit (pause_turn)
+        continuations = 0
+        while response.stop_reason == "pause_turn" and continuations < 2:
             messages = [
                 {"role": "user", "content": prompt},
                 {"role": "assistant", "content": response.content},
             ]
             with client.messages.stream(
                 model=model_id,
-                max_tokens=4000,
+                max_tokens=8000,
+                thinking={"type": "adaptive"},
+                output_config={"effort": "medium"},
                 tools=tools,
                 messages=messages,
             ) as stream2:
                 response = stream2.get_final_message()
-            del messages
-            gc.collect()
+            continuations += 1
 
         # Concatenate all text blocks (tool_use and thinking blocks are separate)
         report_text = "".join(b.text for b in response.content if b.type == "text")
@@ -2138,16 +2137,16 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 pass
             report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
 
-        # Compute cost (Sonnet 4.6: $3/M input, $15/M output)
+        # Compute cost (Opus 4.7: $5/M input, $25/M output)
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        cost_usd = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+        cost_usd = (input_tokens * 5 + output_tokens * 25) / 1_000_000
         cost_krw = round(cost_usd * 1400)
 
         result = {
             "report": report_text,
             "cached": False,
-            "model": "Claude Sonnet 4.6",
+            "model": "Claude Opus 4.7",
             "model_id": model_id,
             "usage": {
                 "input_tokens": input_tokens,
