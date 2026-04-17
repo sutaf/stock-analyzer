@@ -291,6 +291,16 @@ async function analyze(ticker) {
   document.getElementById('resultSection').classList.add('hidden');
   document.getElementById('watchlistBtn').style.display = 'none';
 
+  // Reset report section from previous ticker
+  const rs = document.getElementById('reportSection');
+  if (rs) rs.style.display = 'none';
+  const rc = document.getElementById('reportContent');
+  if (rc) rc.innerHTML = '';
+  const rf = document.getElementById('reportFooter');
+  if (rf) { rf.innerHTML = ''; rf.style.display = 'none'; }
+  const rmb = document.getElementById('reportModelBadge');
+  if (rmb) { rmb.textContent = ''; rmb.style.display = 'none'; }
+
   try {
     let res = await fetch(`/api/analyze/us/${encodeURIComponent(ticker)}`);
     // Retry once after delay on rate limit
