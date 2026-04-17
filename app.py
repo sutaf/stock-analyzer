@@ -2011,111 +2011,69 @@ def generate_report(ticker):
 
         # Build the prompt — community sentiment comes from live web search
         currency_symbol = "₩" if analysis.get("currency") == "KRW" else "$"
-        prompt = f"""다음은 주식 기술적/정성적 분석 데이터입니다. 이 데이터 + **실시간 웹 검색**을 바탕으로 투자 판단에 도움이 되는 **한국어 투자 분석 리포트**를 작성해주세요.
+        prompt = f"""{name} ({tkr}) 투자 분석 리포트를 한국어로 작성해주세요.
 
-## 종목 정보
-- 이름: {name}
-- 티커: {tkr}
-- 현재가: {currency_symbol}{close_price}
-- 변동률: {analysis.get('change_pct')}%
-- 섹터/산업: {analysis.get('sector', 'N/A')} / {analysis.get('industry', 'N/A')}
+## 기술 데이터
+- 현재가: {currency_symbol}{close_price} ({analysis.get('change_pct')}%)
+- 점수: {analysis.get('score')}/100 ({analysis.get('grade')})
+- 섹터: {analysis.get('sector', 'N/A')}
 
-## 기술적 분석 점수: {analysis.get('score')}/100 ({analysis.get('grade')})
-
-### 기술 지표
+### 지표
 {_format_indicators_for_report(ind)}
 
-### 주요 가격 레벨
-- 현재가: {currency_symbol}{close_price}
-- SMA20: {currency_symbol}{sma20 if sma20 else 'N/A'}
-- SMA60: {currency_symbol}{sma60 if sma60 else 'N/A'}
-- SMA120: {currency_symbol}{sma120 if sma120 else 'N/A'}
-- 볼린저 상단: {currency_symbol}{bb_upper if bb_upper else 'N/A'}
-- 볼린저 하단: {currency_symbol}{bb_lower if bb_lower else 'N/A'}
-- ATR(14): {atr if atr else 'N/A'} ← 1일 변동폭 기준
+### 가격 레벨
+SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb_lower}, ATR {atr}
 
-### 기술적 분석 근거
-{chr(10).join('- ' + r for r in (analysis.get('reasons') or [])[:8])}
+### 기술 근거
+{chr(10).join('- ' + r for r in (analysis.get('reasons') or [])[:6])}
 
-## 정성적 분석
+## 정성
 {_format_fundamental_for_report(analysis.get('fundamental', {}))}
 
 ---
 
-## 🔎 필수: 웹 검색을 통한 커뮤니티 감성/뉴스 조사
+## 🔎 필수: web_search로 다음을 조사
+- "{tkr} stock news" (최근 뉴스)
+- "{tkr} reddit stocktwits" (커뮤니티 감성)
+- "{tkr} analyst rating" (애널리스트)
+- "{tkr} bearish risks" (반대 의견)
 
-**web_search 도구를 사용하여 반드시 다음을 조사한 후 리포트에 반영하세요:**
-
-1. **최근 뉴스** (지난 1-2주): "{name} {tkr} stock news", "{tkr} earnings" 등으로 검색
-2. **커뮤니티 감성**: "{tkr} reddit", "{tkr} stocktwits", "{tkr} 종목토론" 등 실제 투자자 커뮤니티 논의 조사
-3. **애널리스트 의견**: "{tkr} analyst rating price target" 최신 동향
-4. **논쟁점/우려사항**: "{tkr} risks", "{tkr} bearish", "{tkr} short thesis" 등 반대 의견
-
-검색 결과에서 얻은 정보는 **출처와 함께** 간결히 인용하세요.
+출처와 함께 간결히 인용.
 
 ---
 
-**리포트 작성 가이드 (아래 섹션을 모두 포함):**
+## 리포트 섹션 (모두 포함)
 
 ### 📋 요약
-3-4줄로 현재 상황 정리 (웹 검색 결과 반영)
+3-4줄 (웹 검색 반영)
 
-### ✅ 강점
-긍정적 시그널 3가지 (기술적 + 웹 검색 기반)
+### ✅ 강점 / ⚠️ 약점
+각 3가지
 
-### ⚠️ 약점
-주의해야 할 리스크 3가지 (기술적 + 웹 검색 기반)
+### 🎯 익절/손절 라인
+- **익절 1차**: {currency_symbol}가격 — 이유
+- **익절 2차**: {currency_symbol}가격 — 이유
+- **손절**: {currency_symbol}가격 — 이유
+- **R:R**: X:1
 
-### 🎯 익절/손절 라인 제시
-구체적인 가격을 제시해주세요. 반드시 아래 형식으로:
-- **익절 1차**: {currency_symbol}가격 — 이유 (예: SMA60 저항선, RSI 과매수 진입)
-- **익절 2차**: {currency_symbol}가격 — 이유 (예: 볼린저 상단, 분할 매도 권장)
-- **손절 라인**: {currency_symbol}가격 — 이유 (예: SMA120 이탈, ATR × 2 하회)
-- **목표 손익비 (R:R)**: 약 X:1
-
-ATR, SMA 레벨, 볼린저 밴드를 활용하여 논리적 근거 제시.
-
-### 🔄 역발상 의견 (Contrarian View)
-현재 분석 점수와 **반대되는 관점**을 제시하세요:
-- 점수가 Buy라면 → 매수 신호 실패 시나리오
-- 점수가 Sell이라면 → 반등 가능성이 있는 숨겨진 요인
-- Hold라면 → 방향성 전환의 트리거
-
-시장 합의의 사각지대, 뒤집힐 수 있는 가정, 반대 포지션 근거 2-3가지.
-**웹 검색에서 찾은 소수 의견(contrarian opinion)도 활용하세요.**
+### 🔄 역발상 의견
+점수와 반대되는 관점 2-3가지 (웹 검색의 소수 의견 활용)
 
 ### 📊 커뮤니티 노이즈 평가 (웹 검색 기반)
-웹 검색 결과를 바탕으로 이 종목의 커뮤니티 노이즈 수준을 평가하세요:
-- **노이즈 점수(0-100)를 직접 산출**하여 제시 (높을수록 신호 불명확/혼잡)
-- 점수 산정 기준:
-  - 의견 분산도 (다수가 양극단으로 갈리는가?)
-  - 볼륨 이상도 (평소보다 언급이 급증했는가?)
-  - 정보 품질 (루머 vs 공식 발표 비중)
-  - 감성 일관성 (가격 움직임과 여론의 정합성)
-- 이 노이즈 수준이 **투자 판단에 어떻게 반영되어야 하는지** 구체적으로 설명
+0-100 노이즈 점수를 직접 산출:
+- 의견 분산도, 볼륨 이상도, 정보 품질, 감성 일관성
+- 투자 판단에 어떻게 반영할지 설명
 
-**리포트 마지막 줄에 반드시 다음 형식으로 구조화된 메타데이터를 추가:**
-```
-<!--META:noise=NN-->
-```
-(NN은 0-100 정수. 예: `<!--META:noise=72-->`)
-
-### 🧭 투자 전략
-매수/보유/매도 스탠스 + 진입/이탈 타이밍
-
-### 🎬 결론
-한 문단 최종 투자의견. 기술적 점수, 정성적 분석, 웹 검색 기반 감성/뉴스, 노이즈 수준을 종합.
+### 🧭 투자 전략 / 🎬 결론
 
 ---
 
-**작성 원칙:**
-- 마크다운 형식 사용
-- 가격은 구체적 숫자로 (현재가 기준 % 비율도 함께 표기)
-- 중립적·균형 잡힌 분석
-- 출처 인용 (예: "Reuters에 따르면...", "Reddit r/wallstreetbets에서...")
-- 마지막에 반드시 면책 문구 + 메타 태그:
+**원칙:**
+- 가격 숫자 + % 비율
+- 출처 인용
+- 마지막에:
   "⚠️ 이 리포트는 참고용이며 투자 책임은 본인에게 있습니다."
-  `<!--META:noise=NN-->`
+  `<!--META:noise=NN-->` (NN=0-100 정수)
 """
 
         # Aggressively free memory before heavy API call (Render free tier is 512MB)
@@ -2124,7 +2082,9 @@ ATR, SMA 레벨, 볼린저 밴드를 활용하여 논리적 근거 제시.
                 del _cache[k]
         gc.collect()
 
-        # Call Claude with web_search tool for live community sentiment
+        # Call Claude with web_search tool for live community sentiment.
+        # Use streaming to avoid buffering the full response in memory at once
+        # (Render free tier has only 512MB and web search responses are large).
         model_id = "claude-opus-4-7"
         tools = [{
             "type": "web_search_20260209",
@@ -2132,31 +2092,33 @@ ATR, SMA 레벨, 볼린저 밴드를 활용하여 논리적 근거 제시.
         }]
         client = anthropic.Anthropic(api_key=api_key)
         messages = [{"role": "user", "content": prompt}]
-        response = client.messages.create(
+        with client.messages.stream(
             model=model_id,
-            max_tokens=8000,
+            max_tokens=5000,
             thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
+            output_config={"effort": "low"},
             tools=tools,
             messages=messages,
-        )
+        ) as stream:
+            response = stream.get_final_message()
 
-        # Handle server-side tool iteration limit (pause_turn)
-        continuations = 0
-        while response.stop_reason == "pause_turn" and continuations < 3:
+        # Single pause_turn continuation only (additional rounds blow the RAM budget)
+        if response.stop_reason == "pause_turn":
             messages = [
                 {"role": "user", "content": prompt},
                 {"role": "assistant", "content": response.content},
             ]
-            response = client.messages.create(
+            with client.messages.stream(
                 model=model_id,
-                max_tokens=8000,
+                max_tokens=5000,
                 thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
+                output_config={"effort": "low"},
                 tools=tools,
                 messages=messages,
-            )
-            continuations += 1
+            ) as stream2:
+                response = stream2.get_final_message()
+            del messages
+            gc.collect()
 
         # Concatenate all text blocks (tool_use and thinking blocks are separate)
         report_text = "".join(b.text for b in response.content if b.type == "text")
