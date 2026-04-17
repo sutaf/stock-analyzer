@@ -56,12 +56,17 @@ def cache_get(key):
 def cache_set(key, value):
     """Set value in cache with timestamp."""
     _cache[key] = (value, _time.time())
-    # Evict old entries if cache grows too large
-    if len(_cache) > 200:
+    # Evict old entries if cache grows too large (tighter limit for 512MB free tier)
+    if len(_cache) > 50:
         cutoff = _time.time() - _CACHE_TTL
         expired = [k for k, (_, ts) in _cache.items() if ts < cutoff]
         for k in expired:
             del _cache[k]
+        # If still too large, drop oldest 25%
+        if len(_cache) > 50:
+            sorted_keys = sorted(_cache.items(), key=lambda x: x[1][1])
+            for k, _ in sorted_keys[:len(_cache) // 4]:
+                del _cache[k]
 
 
 def _make_ticker(ticker_symbol, session=None):
