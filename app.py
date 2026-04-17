@@ -2091,6 +2091,8 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
+            # Cap server-side search loop to keep response size within 512MB RAM
+            "max_uses": 3,
         }]
         client = anthropic.Anthropic(api_key=api_key)
         messages = [{"role": "user", "content": prompt}]
