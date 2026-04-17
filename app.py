@@ -2094,11 +2094,10 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         }]
         client = anthropic.Anthropic(api_key=api_key)
         messages = [{"role": "user", "content": prompt}]
+        # No thinking: thinking tokens + web_search response blow 512MB RAM
         with client.messages.stream(
             model=model_id,
-            max_tokens=5000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "low"},
+            max_tokens=4000,
             tools=tools,
             messages=messages,
         ) as stream:
@@ -2112,9 +2111,7 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
             ]
             with client.messages.stream(
                 model=model_id,
-                max_tokens=5000,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "low"},
+                max_tokens=4000,
                 tools=tools,
                 messages=messages,
             ) as stream2:
