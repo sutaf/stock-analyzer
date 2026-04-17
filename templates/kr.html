@@ -70,21 +70,27 @@
     </div>
 
     <!-- AI Report button -->
-    <div style="margin-bottom: 16px; text-align: center;">
-      <button class="btn btn-primary" id="reportBtn" style="background: linear-gradient(135deg, #8b5cf6 0%, #2563eb 100%);">
-        🤖 AI 투자 리포트 생성
+    <div style="margin-bottom: 20px; text-align: center;">
+      <button class="btn btn-report" id="reportBtn">
+        <span style="font-size: 1.1rem;">🤖</span> AI 투자 리포트 생성
       </button>
     </div>
 
     <!-- AI Report display -->
-    <div id="reportSection" class="card" style="display: none; margin-bottom: 24px;">
-      <h3 style="font-weight: 700; margin-bottom: 12px;">🤖 AI 투자 리포트</h3>
-      <div id="reportLoading" class="loading" style="display: none;">
-        <div class="spinner"></div>
-        <p style="margin-top: 12px;">Claude AI가 리포트 작성 중...</p>
+    <div id="reportSection" class="report-card" style="display: none; margin-bottom: 24px;">
+      <div class="report-header">
+        <h3><span>🤖</span> AI 투자 리포트</h3>
+        <span class="model-badge" id="reportModelBadge" style="display:none;"></span>
       </div>
-      <div id="reportError" class="error-msg" style="display: none;"></div>
-      <div id="reportContent" style="line-height: 1.8; font-size: 0.95rem;"></div>
+      <div class="report-body">
+        <div id="reportLoading" class="loading" style="display: none;">
+          <div class="spinner"></div>
+          <p style="margin-top: 12px;">Claude가 심층 분석 중입니다...</p>
+        </div>
+        <div id="reportError" class="error-msg" style="display: none;"></div>
+        <div id="reportContent"></div>
+      </div>
+      <div class="report-footer" id="reportFooter" style="display:none;"></div>
     </div>
 
     <div class="tabs">
@@ -635,14 +641,17 @@ async function generateReport(ticker) {
   const loading = document.getElementById('reportLoading');
   const errorBox = document.getElementById('reportError');
   const content = document.getElementById('reportContent');
+  const footer = document.getElementById('reportFooter');
+  const modelBadge = document.getElementById('reportModelBadge');
   const btn = document.getElementById('reportBtn');
 
   section.style.display = 'block';
   loading.style.display = 'block';
   errorBox.style.display = 'none';
   content.innerHTML = '';
+  footer.style.display = 'none';
+  modelBadge.style.display = 'none';
   btn.disabled = true;
-  btn.style.opacity = '0.6';
 
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -653,9 +662,33 @@ async function generateReport(ticker) {
 
     content.innerHTML = renderMarkdown(data.report);
 
-    if (data.usage && !data.cached) {
-      const tokens = data.usage.input_tokens + data.usage.output_tokens;
-      content.innerHTML += `<p style="margin-top:16px;color:var(--text3);font-size:0.75rem;text-align:right;">토큰 사용량: ${tokens.toLocaleString()}</p>`;
+    if (data.model) {
+      modelBadge.textContent = data.model;
+      modelBadge.style.display = 'inline-block';
+    }
+
+    const parts = [];
+    if (data.noise_score != null) {
+      const noiseCls = data.noise_score < 35 ? 'low' : data.noise_score < 65 ? 'mid' : 'high';
+      const noiseLabel = data.noise_score < 35 ? '낮음' : data.noise_score < 65 ? '중간' : '높음';
+      parts.push(`<span class="noise-indicator ${noiseCls}">📊 노이즈 ${data.noise_score} (${noiseLabel})</span>`);
+    }
+    if (data.cached) {
+      parts.push(`<span class="cached-badge">⚡ 캐시됨</span>`);
+    }
+    if (data.model) {
+      parts.push(`<span class="meta-item"><strong>모델:</strong> ${escapeHtml(data.model)}</span>`);
+    }
+    if (data.usage) {
+      const t = data.usage.total_tokens || (data.usage.input_tokens + data.usage.output_tokens);
+      parts.push(`<span class="meta-item"><strong>토큰:</strong> ${t.toLocaleString()}</span>`);
+    }
+    if (data.cost) {
+      parts.push(`<span class="cost-badge">💰 $${data.cost.usd} (${data.cost.krw.toLocaleString()}원)</span>`);
+    }
+    if (parts.length > 0) {
+      footer.innerHTML = parts.join('');
+      footer.style.display = 'flex';
     }
   } catch (err) {
     errorBox.textContent = err.message;
@@ -663,23 +696,65 @@ async function generateReport(ticker) {
   } finally {
     loading.style.display = 'none';
     btn.disabled = false;
-    btn.style.opacity = '1';
   }
 }
 
 function renderMarkdown(md) {
-  let html = escapeHtml(md);
-  html = html.replace(/^### (.+)$/gm, '<h4 style="margin-top:20px;margin-bottom:8px;font-weight:700;">$1</h4>');
-  html = html.replace(/^## (.+)$/gm, '<h3 style="margin-top:24px;margin-bottom:12px;font-weight:800;color:var(--primary);">$1</h3>');
-  html = html.replace(/^# (.+)$/gm, '<h2 style="margin-top:24px;margin-bottom:12px;font-weight:900;">$1</h2>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (m) => '<ul style="margin:8px 0;padding-left:24px;">' + m + '</ul>');
-  html = html.replace(/\n\n/g, '</p><p style="margin:12px 0;">');
-  html = '<p style="margin:12px 0;">' + html + '</p>';
-  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
-  return html;
+  const lines = md.split('\n');
+  const out = [];
+  let inList = false;
+  let buffer = [];
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    const text = buffer.join(' ').trim();
+    if (text) out.push(`<p>${applyInline(text)}</p>`);
+    buffer = [];
+  };
+  const closeList = () => {
+    if (inList) { out.push('</ul>'); inList = false; }
+  };
+  const applyInline = (s) => {
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+    s = s.replace(/`([^`]+)`/g, '<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.88em;">$1</code>');
+    return s;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, '');
+    const esc = escapeHtml(line);
+
+    if (/^(---+|\*\*\*+)$/.test(line.trim())) {
+      flushBuffer(); closeList();
+      out.push('<hr>');
+      continue;
+    }
+    let m;
+    if ((m = esc.match(/^####\s+(.+)$/))) { flushBuffer(); closeList(); out.push(`<h4>${applyInline(m[1])}</h4>`); continue; }
+    if ((m = esc.match(/^###\s+(.+)$/)))  { flushBuffer(); closeList(); out.push(`<h3>${applyInline(m[1])}</h3>`); continue; }
+    if ((m = esc.match(/^##\s+(.+)$/)))   { flushBuffer(); closeList(); out.push(`<h2>${applyInline(m[1])}</h2>`); continue; }
+    if ((m = esc.match(/^#\s+(.+)$/)))    { flushBuffer(); closeList(); out.push(`<h2>${applyInline(m[1])}</h2>`); continue; }
+    if ((m = esc.match(/^\s*[-*]\s+(.+)$/))) {
+      flushBuffer();
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${applyInline(m[1])}</li>`);
+      continue;
+    }
+    if ((m = esc.match(/^>\s+(.+)$/))) {
+      flushBuffer(); closeList();
+      out.push(`<blockquote>${applyInline(m[1])}</blockquote>`);
+      continue;
+    }
+    if (line.trim() === '') {
+      flushBuffer(); closeList();
+      continue;
+    }
+    if (inList) { closeList(); }
+    buffer.push(esc);
+  }
+  flushBuffer(); closeList();
+  return out.join('\n');
 }
 
 async function loadCommunity(ticker) {

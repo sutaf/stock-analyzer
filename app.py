@@ -1826,6 +1826,68 @@ def _format_indicators_for_report(indicators):
     return "\n".join(f"- {label}: {fmt(indicators.get(key))}" for label, key in keys)
 
 
+def _compute_community_noise(community):
+    """Compute community noise score 0-100 (higher = noisier, less reliable).
+
+    Noise factors:
+    - Low consensus: when bullish/bearish posts are split ~50/50, the signal is
+      ambiguous regardless of volume.
+    - Volume anomaly: unusual post volume (either spike or drought) inflates noise
+      - spikes often precede emotional/meme-driven moves; drought means low info.
+    - Sentiment momentum magnitude: rapid swings indicate unstable conviction.
+    - Small sample size: fewer than 20 posts can't produce a reliable signal.
+    """
+    if not community or community.get("score") is None:
+        return None
+
+    post_count = community.get("post_count", 0) or 0
+    consensus = community.get("consensus_pct", 0.5) or 0.5
+    volume_ratio = community.get("volume_ratio", 1.0) or 1.0
+    momentum = abs(community.get("sentiment_momentum", 0) or 0)
+
+    # 1. Ambiguity: distance from 50/50 split (closer to 50% = more noise)
+    ambiguity = 1 - abs(consensus - 0.5) * 2  # 0 (pure consensus) to 1 (50/50)
+
+    # 2. Volume anomaly: log-ratio from normal volume (1.0)
+    vol_anomaly = min(abs(math.log(max(volume_ratio, 0.1))) / 2, 1.0)
+
+    # 3. Momentum magnitude capped at 1
+    momentum_score = min(momentum * 2, 1.0)
+
+    # 4. Sample size penalty: fewer posts = less reliable
+    sample_penalty = max(0, 1 - post_count / 50) if post_count > 0 else 1.0
+
+    # Weighted combination
+    noise = (
+        ambiguity * 35
+        + vol_anomaly * 25
+        + momentum_score * 20
+        + sample_penalty * 20
+    )
+    return round(max(0, min(100, noise)), 1)
+
+
+def _format_community_for_report(community, noise_score):
+    """Format community sentiment for the prompt."""
+    if not community or community.get("score") is None:
+        return "커뮤니티 데이터 없음"
+    noise_label = (
+        "낮음 (신호 명확)" if noise_score is not None and noise_score < 35
+        else "중간" if noise_score is not None and noise_score < 65
+        else "높음 (신호 약함)"
+    )
+    return (
+        f"- 커뮤니티 감성 점수: {community.get('score')}/100 ({community.get('grade', 'N/A')})\n"
+        f"- 게시글 수: {community.get('post_count', 0)}개 "
+        f"(긍정 {community.get('bullish_count', 0)} / 부정 {community.get('bearish_count', 0)} / 중립 {community.get('neutral_count', 0)})\n"
+        f"- 평균 감성: {community.get('avg_sentiment', 0):.2f}\n"
+        f"- 볼륨 비율: {community.get('volume_ratio', 1):.1f}x (평소 대비)\n"
+        f"- 합의도: {community.get('consensus_pct', 0)*100:.0f}%\n"
+        f"- 감성 추세: {community.get('sentiment_momentum', 0):+.3f}\n"
+        f"- **노이즈 점수: {noise_score}/100 ({noise_label})**"
+    )
+
+
 def _format_fundamental_for_report(fund):
     """Build a compact fundamental summary for the prompt."""
     if not fund or fund.get("error"):
@@ -1867,7 +1929,9 @@ def generate_report(ticker):
         if cache_key in _cache:
             val, ts = _cache[cache_key]
             if _time.time() - ts < 3600:
-                return jsonify({"report": val, "cached": True})
+                cached_result = dict(val) if isinstance(val, dict) else {"report": val}
+                cached_result["cached"] = True
+                return jsonify(cached_result)
 
         # Reuse analysis cache if available; otherwise analyze fresh
         is_kr = ticker.isdigit() and len(ticker) == 6
@@ -1912,21 +1976,56 @@ def generate_report(ticker):
                 "industry": info.get("industry", ""),
             }
 
+        # Fetch community sentiment (use cache if available)
+        comm_key = f"comm_{analysis.get('ticker', ticker)}"
+        community = cache_get(comm_key)
+        if community is None:
+            try:
+                community = fetch_community_sentiment(
+                    analysis.get('ticker', ticker),
+                    is_kr=is_kr,
+                )
+                if community:
+                    cache_set(comm_key, community)
+            except Exception:
+                community = None
+
+        noise_score = _compute_community_noise(community) if community else None
+
+        # Key price levels for take-profit/stop-loss context
+        close_price = analysis.get('close') or 0
+        ind = analysis.get('indicators', {}) or {}
+        atr = ind.get('ATR')
+        sma20 = ind.get('SMA20')
+        sma60 = ind.get('SMA60')
+        sma120 = ind.get('SMA120')
+        bb_upper = ind.get('BB_Upper')
+        bb_lower = ind.get('BB_Lower')
+
         # Build the prompt
         currency_symbol = "₩" if analysis.get("currency") == "KRW" else "$"
-        prompt = f"""다음은 주식 기술적/정성적 분석 데이터입니다. 이 데이터를 바탕으로 투자 판단에 도움이 되는 **한국어 투자 분석 리포트**를 작성해주세요.
+        prompt = f"""다음은 주식 기술적/정성적/커뮤니티 분석 데이터입니다. 이 데이터를 바탕으로 투자 판단에 도움이 되는 **한국어 투자 분석 리포트**를 작성해주세요.
 
 ## 종목 정보
 - 이름: {analysis.get('name', ticker)}
 - 티커: {analysis.get('ticker', ticker)}
-- 현재가: {currency_symbol}{analysis.get('close')}
+- 현재가: {currency_symbol}{close_price}
 - 변동률: {analysis.get('change_pct')}%
 - 섹터/산업: {analysis.get('sector', 'N/A')} / {analysis.get('industry', 'N/A')}
 
 ## 기술적 분석 점수: {analysis.get('score')}/100 ({analysis.get('grade')})
 
 ### 기술 지표
-{_format_indicators_for_report(analysis.get('indicators', {}))}
+{_format_indicators_for_report(ind)}
+
+### 주요 가격 레벨
+- 현재가: {currency_symbol}{close_price}
+- SMA20: {currency_symbol}{sma20 if sma20 else 'N/A'}
+- SMA60: {currency_symbol}{sma60 if sma60 else 'N/A'}
+- SMA120: {currency_symbol}{sma120 if sma120 else 'N/A'}
+- 볼린저 상단: {currency_symbol}{bb_upper if bb_upper else 'N/A'}
+- 볼린저 하단: {currency_symbol}{bb_lower if bb_lower else 'N/A'}
+- ATR(14): {atr if atr else 'N/A'} ← 1일 변동폭 기준
 
 ### 기술적 분석 근거
 {chr(10).join('- ' + r for r in (analysis.get('reasons') or [])[:8])}
@@ -1934,21 +2033,65 @@ def generate_report(ticker):
 ## 정성적 분석
 {_format_fundamental_for_report(analysis.get('fundamental', {}))}
 
+## 커뮤니티 감성 분석
+{_format_community_for_report(community, noise_score)}
+
 ---
 
-**리포트 작성 가이드:**
-1. **요약** — 3-4줄로 이 종목의 현재 상황을 정리
-2. **강점** — 긍정적 시그널과 이유 (3가지)
-3. **약점** — 주의해야 할 리스크 (3가지)
-4. **투자 전략** — 매수/보유/매도 중 어떤 스탠스가 적합한지, 진입/이탈 타이밍 제안
-5. **결론** — 한 문단 투자의견
+**리포트 작성 가이드 (아래 섹션을 모두 포함해주세요):**
 
-마크다운 형식으로 작성하되, 중립적이고 균형 잡힌 분석을 제공해주세요. 마지막에 반드시 "이 리포트는 참고용이며 투자 책임은 본인에게 있습니다." 문구를 포함해주세요."""
+### 📋 요약
+3-4줄로 이 종목의 현재 상황을 정리
+
+### ✅ 강점
+긍정적 시그널 3가지
+
+### ⚠️ 약점
+주의해야 할 리스크 3가지
+
+### 🎯 익절/손절 라인 제시
+구체적인 가격을 제시해주세요. 반드시 아래 형식으로 작성:
+- **익절 1차**: {currency_symbol}가격 — 이유 (예: SMA60 저항선, RSI 과매수 진입)
+- **익절 2차**: {currency_symbol}가격 — 이유 (예: 볼린저 상단, 분할 매도 권장)
+- **손절 라인**: {currency_symbol}가격 — 이유 (예: SMA120 이탈, ATR × 2 하회)
+- **목표 손익비 (R:R)**: 약 X:1
+
+ATR, SMA 레벨, 볼린저 밴드를 활용하여 논리적 근거를 제시하세요.
+
+### 🔄 역발상 의견 (Contrarian View)
+현재 분석 점수와 **반대되는 관점**을 제시하세요. 예를 들어:
+- 점수가 Buy라면 → 이 매수 신호가 실패할 수 있는 시나리오
+- 점수가 Sell이라면 → 반등 가능성이 있는 숨겨진 요인
+- Hold라면 → 방향성 전환의 트리거가 될 수 있는 요소
+
+시장 합의의 사각지대, 뒤집힐 수 있는 가정, 반대 포지션의 근거를 2-3가지 제시.
+
+### 📊 커뮤니티 노이즈 반영
+위 데이터의 **노이즈 점수**를 해석하고, 이것이 투자 판단에 어떤 영향을 주는지 설명:
+- 노이즈가 높으면 (60+) → 감성 신호를 신중히 해석, 기술적 분석 비중↑
+- 노이즈가 낮으면 (35-) → 커뮤니티 신호를 더 신뢰할 만함
+- 구체적으로 이 종목의 노이즈가 분석에 어떻게 반영되었는지 언급
+
+### 🧭 투자 전략
+매수/보유/매도 스탠스 + 진입/이탈 타이밍
+
+### 🎬 결론
+한 문단 투자의견. 기술적 점수, 정성적 분석, 커뮤니티 노이즈를 종합한 최종 의견.
+
+---
+
+**작성 원칙:**
+- 마크다운 형식 사용
+- 가격은 구체적 숫자로 (현재가 기준 % 비율도 함께 표기)
+- 중립적·균형 잡힌 분석
+- 마지막에 반드시: "⚠️ 이 리포트는 참고용이며 투자 책임은 본인에게 있습니다."
+"""
 
         # Call Claude with adaptive thinking for deeper analysis
+        model_id = "claude-opus-4-7"
         client = anthropic.Anthropic(api_key=api_key)
         with client.messages.stream(
-            model="claude-opus-4-7",
+            model=model_id,
             max_tokens=16000,
             thinking={"type": "adaptive"},
             messages=[{"role": "user", "content": prompt}],
@@ -1960,15 +2103,30 @@ def generate_report(ticker):
         if not report_text:
             return jsonify({"error": "리포트 생성에 실패했습니다."}), 500
 
-        cache_set(cache_key, report_text)
-        return jsonify({
+        # Compute cost (Opus 4.7: $5/M input, $25/M output)
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+        cost_usd = (input_tokens * 5 + output_tokens * 25) / 1_000_000
+        cost_krw = round(cost_usd * 1400)  # rough exchange rate
+
+        result = {
             "report": report_text,
             "cached": False,
+            "model": "Claude Opus 4.7",
+            "model_id": model_id,
             "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
             },
-        })
+            "cost": {
+                "usd": round(cost_usd, 4),
+                "krw": cost_krw,
+            },
+            "noise_score": noise_score,
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
 
     except anthropic.AuthenticationError:
         return jsonify({"error": "API Key가 유효하지 않습니다. Render 환경변수의 ANTHROPIC_API_KEY를 확인해주세요."}), 500

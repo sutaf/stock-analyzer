@@ -636,6 +636,206 @@ a:hover { text-decoration: underline; }
   .score-overview { grid-template-columns: 1fr; }
 }
 
+/* ─── AI Report Card ─── */
+.report-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+.report-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #8b5cf6 0%, #2563eb 50%, #06b6d4 100%);
+}
+.report-header {
+  padding: 24px 28px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.report-header h3 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.report-header .model-badge {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text3);
+  background: var(--bg3);
+  padding: 4px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.3px;
+}
+.report-body {
+  padding: 28px 32px 20px;
+  font-size: 0.94rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+.report-body h2 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin: 32px 0 16px;
+  letter-spacing: -0.4px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--border);
+}
+.report-body h2:first-child { margin-top: 0; }
+.report-body h3 {
+  font-size: 1.08rem;
+  font-weight: 800;
+  margin: 28px 0 12px;
+  color: var(--primary);
+  letter-spacing: -0.2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.report-body h3::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  background: linear-gradient(180deg, #8b5cf6 0%, #2563eb 100%);
+  border-radius: 2px;
+}
+.report-body h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 20px 0 8px;
+}
+.report-body p { margin: 10px 0; }
+.report-body ul, .report-body ol {
+  margin: 10px 0 16px;
+  padding-left: 24px;
+}
+.report-body li {
+  margin-bottom: 6px;
+}
+.report-body li::marker { color: var(--primary); }
+.report-body strong {
+  font-weight: 700;
+  color: var(--text);
+}
+.report-body hr {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 24px 0;
+}
+.report-body blockquote {
+  border-left: 3px solid var(--warning);
+  padding: 10px 16px;
+  background: var(--bg3);
+  margin: 16px 0;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.88rem;
+  color: var(--text2);
+}
+
+/* Price level highlighting within report */
+.report-body strong:has(+ :not(strong)) { color: var(--primary); }
+
+/* Footer with model/tokens/cost */
+.report-footer {
+  border-top: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.78rem;
+  color: var(--text3);
+  background: var(--bg3);
+  flex-wrap: wrap;
+}
+.report-footer .meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.report-footer .meta-item strong {
+  color: var(--text2);
+  font-weight: 700;
+}
+.report-footer .cost-badge {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+.report-footer .cached-badge {
+  background: #dcfce7;
+  color: #15803d;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+[data-theme="dark"] .report-footer .cached-badge {
+  background: #14532d;
+  color: #86efac;
+}
+
+/* Noise indicator */
+.noise-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.noise-indicator.low { background: #dcfce7; color: #15803d; }
+.noise-indicator.mid { background: #fef9c3; color: #ca8a04; }
+.noise-indicator.high { background: #fee2e2; color: #dc2626; }
+[data-theme="dark"] .noise-indicator.low { background: #14532d; color: #86efac; }
+[data-theme="dark"] .noise-indicator.mid { background: #713f12; color: #fde047; }
+[data-theme="dark"] .noise-indicator.high { background: #450a0a; color: #fca5a5; }
+
+/* Report generate button */
+.btn-report {
+  background: linear-gradient(135deg, #8b5cf6 0%, #2563eb 100%);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  padding: 12px 28px;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.25);
+}
+.btn-report:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+}
+.btn-report:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .report-body { padding: 20px 18px 16px; font-size: 0.9rem; }
+  .report-header { padding: 18px 18px 12px; }
+  .report-footer { padding: 12px 18px; font-size: 0.72rem; gap: 10px; }
+  .report-body h2 { font-size: 1.2rem; }
+  .report-body h3 { font-size: 1rem; }
+}
+
 /* ─── Hamburger Menu ─── */
 .nav-toggle {
   display: none;
