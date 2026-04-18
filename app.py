@@ -385,6 +385,34 @@ def score_stock(indicators):
     return score, grade, reasons
 
 
+def compute_tp_sl(close, indicators):
+    """Technical TP/SL levels.
+    SL  = max(close - 2*ATR, SMA60 if it's below price) — the higher of ATR stop vs. MA support
+    TP1 = close + 2*ATR (R:R 1:1)
+    TP2 = min(close + 4*ATR, BB upper if nearer) (R:R 1:2, capped at BB upper)
+    """
+    atr = indicators.get("ATR")
+    if close is None or atr is None or atr <= 0:
+        return None
+    sma60 = indicators.get("SMA60")
+    bb_upper = indicators.get("BB_Upper")
+    atr_stop = close - 2 * atr
+    sl = max(atr_stop, sma60) if sma60 is not None and sma60 < close else atr_stop
+    tp1 = close + 2 * atr
+    tp2 = close + 4 * atr
+    if bb_upper is not None and close < bb_upper < tp2:
+        tp2 = bb_upper
+    risk = close - sl
+    reward2 = tp2 - close
+    rr = round(reward2 / risk, 2) if risk and risk > 0 else None
+    return {
+        "sl": round(sl, 2),
+        "tp1": round(tp1, 2),
+        "tp2": round(tp2, 2),
+        "rr": rr,
+    }
+
+
 def detect_chart_signals(df, limit=120):
     """Detect key chart events for annotations.
     Returns list of {date, index, type, label, color, bullish, emoji}
@@ -1964,6 +1992,7 @@ def analyze_us(ticker):
             "grade": grade,
             "reasons": reasons,
             "indicators": indicators,
+            "tp_sl": compute_tp_sl(close_price, indicators),
             "chart": chart,
             "currency": info.get("currency", "USD"),
             "market_cap": info.get("marketCap"),
@@ -2067,6 +2096,7 @@ def analyze_kr(code):
             "grade": grade,
             "reasons": reasons,
             "indicators": indicators,
+            "tp_sl": compute_tp_sl(close_price, indicators),
             "chart": chart,
             "currency": "KRW",
             "market_cap": info.get("marketCap"),
@@ -2172,6 +2202,7 @@ def compare_stocks():
                 "grade": grade,
                 "reasons": reasons[:3],
                 "indicators": indicators,
+                "tp_sl": compute_tp_sl(close_price, indicators),
                 "chart": chart,
                 "currency": "KRW" if is_kr else info.get("currency", "USD"),
             })
@@ -2396,6 +2427,7 @@ def advanced_analyze(ticker):
             "indicators": indicators,
             "fibonacci": fib_levels,
             "support_resist": support_resist,
+            "tp_sl": compute_tp_sl(close_price, indicators),
             "chart": chart,
             "currency": "KRW" if is_kr else info.get("currency", "USD"),
         })

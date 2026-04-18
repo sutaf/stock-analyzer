@@ -125,6 +125,12 @@
     </div>
 
     <div id="tab-chart" class="tab-content">
+      <div class="chart-toolbar">
+        <label class="chart-toggle">
+          <input type="checkbox" id="tpSlToggle"> <span>🎯 익절/손절 라인</span>
+        </label>
+        <span class="chart-toolbar-info" id="tpSlInfo"></span>
+      </div>
       <div class="chart-container"><canvas id="priceChart"></canvas></div>
       <div class="chart-signal-legend" id="signalLegend"></div>
       <div class="chart-container short"><canvas id="volumeChart"></canvas></div>
@@ -291,6 +297,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // URL param
   const params = new URLSearchParams(window.location.search);
   if (params.get('code')) analyzeKR(params.get('code'));
+
+  // TP/SL toggle
+  const tpSlToggle = document.getElementById('tpSlToggle');
+  if (tpSlToggle) {
+    tpSlToggle.addEventListener('change', () => {
+      if (!priceChartInstance) return;
+      const ds = priceChartInstance.data.datasets;
+      [ds.length - 3, ds.length - 2, ds.length - 1].forEach(i => {
+        if (ds[i]) ds[i].hidden = !tpSlToggle.checked;
+      });
+      priceChartInstance.update();
+    });
+  }
 
   // AI Report buttons
   document.getElementById('reportBtnBasic').addEventListener('click', () => {
@@ -472,7 +491,7 @@ function renderResult(data) {
     renderRadarChart(data.score, data.fundamental.qual_score, null);
   }
   document.getElementById('reasonsList').innerHTML = data.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('');
-  renderCharts(data.chart);
+  renderCharts(data.chart, data.tp_sl, 'KRW');
 }
 
 function renderIndicators(ind) {
@@ -555,12 +574,30 @@ function renderWordCloud(words) {
   }).join('');
 }
 
-function renderCharts(chart) {
+function renderCharts(chart, tpSl, currency) {
   if (priceChartInstance) priceChartInstance.destroy();
   if (volumeChartInstance) volumeChartInstance.destroy();
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#94a3b8' : '#888';
+
+  const tpSlToggle = document.getElementById('tpSlToggle');
+  const tpSlInfo = document.getElementById('tpSlInfo');
+  const showTpSl = !!(tpSlToggle && tpSlToggle.checked);
+  const sym = currency === 'KRW' ? '₩' : '$';
+  const fmtPrice = (v) => v == null ? '-' : (currency === 'KRW' ? Math.round(v).toLocaleString() : v.toFixed(2));
+  const flatLine = (val) => val == null ? [] : new Array(chart.dates.length).fill(val);
+  if (tpSlInfo) {
+    if (tpSl && tpSl.sl != null) {
+      tpSlInfo.innerHTML = `
+        <span class="tp-sl-badge sl">🛑 SL ${sym}${fmtPrice(tpSl.sl)}</span>
+        <span class="tp-sl-badge tp">🎯 TP1 ${sym}${fmtPrice(tpSl.tp1)}</span>
+        <span class="tp-sl-badge tp">🎯 TP2 ${sym}${fmtPrice(tpSl.tp2)}</span>
+        ${tpSl.rr ? `<span>R:R ${tpSl.rr}:1</span>` : ''}`;
+    } else {
+      tpSlInfo.innerHTML = '';
+    }
+  }
 
   // Build signal marker datasets — group same-day same-side signals
   const sigBullData = new Array(chart.dates.length).fill(null);
@@ -649,6 +686,9 @@ function renderCharts(chart) {
         { label: 'BB Lower', data: chart.bb_lower, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(239,68,68,0.05)', order: 7 },
         { label: '🟢 매수 시그널', type: 'line', data: sigBullData, showLine: false, pointStyle: 'triangle', pointRadius: radiusFn(sigBullGroup), pointHoverRadius: hoverRadiusFn(sigBullGroup), pointBackgroundColor: '#16a34a', pointBorderColor: '#fff', pointBorderWidth: 2, order: 1 },
         { label: '🔴 매도 시그널', type: 'line', data: sigBearData, showLine: false, pointStyle: 'triangle', pointRotation: 180, pointRadius: radiusFn(sigBearGroup), pointHoverRadius: hoverRadiusFn(sigBearGroup), pointBackgroundColor: '#dc2626', pointBorderColor: '#fff', pointBorderWidth: 2, order: 2 },
+        { label: `🛑 손절 ${sym}${fmtPrice(tpSl && tpSl.sl)}`, data: flatLine(tpSl && tpSl.sl), borderColor: '#dc2626', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, fill: false, hidden: !showTpSl, order: 8 },
+        { label: `🎯 익절1 ${sym}${fmtPrice(tpSl && tpSl.tp1)}`, data: flatLine(tpSl && tpSl.tp1), borderColor: '#16a34a', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, fill: false, hidden: !showTpSl, order: 9 },
+        { label: `🎯 익절2 ${sym}${fmtPrice(tpSl && tpSl.tp2)}`, data: flatLine(tpSl && tpSl.tp2), borderColor: '#15803d', borderWidth: 1.5, pointRadius: 0, fill: false, hidden: !showTpSl, order: 10 },
       ],
     },
     options: {

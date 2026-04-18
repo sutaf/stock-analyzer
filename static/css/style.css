@@ -627,6 +627,43 @@ a:hover { text-decoration: underline; }
   border-radius: 12px;
   font-weight: 600;
 }
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 2px;
+  font-size: 0.8rem;
+  color: var(--text3);
+  flex-wrap: wrap;
+}
+.chart-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.chart-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.chart-toolbar-info {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.chart-toolbar-info .tp-sl-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.chart-toolbar-info .tp-sl-badge.sl { background: #fee2e2; color: #dc2626; }
+.chart-toolbar-info .tp-sl-badge.tp { background: #dcfce7; color: #16a34a; }
+[data-theme="dark"] .chart-toolbar-info .tp-sl-badge.sl { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .chart-toolbar-info .tp-sl-badge.tp { background: #14532d; color: #86efac; }
+
 .chart-signal-legend .sig-item.buy { background: #dcfce7; color: #16a34a; }
 .chart-signal-legend .sig-item.sell { background: #fee2e2; color: #dc2626; }
 [data-theme="dark"] .chart-signal-legend .sig-item.buy { background: #14532d; color: #86efac; }

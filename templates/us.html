@@ -117,6 +117,12 @@
 
     <!-- Tab: Chart -->
     <div id="tab-chart" class="tab-content">
+      <div class="chart-toolbar">
+        <label class="chart-toggle">
+          <input type="checkbox" id="tpSlToggle"> <span>🎯 익절/손절 라인</span>
+        </label>
+        <span class="chart-toolbar-info" id="tpSlInfo"></span>
+      </div>
       <div class="chart-container">
         <canvas id="priceChart"></canvas>
       </div>
@@ -315,6 +321,19 @@ document.addEventListener('DOMContentLoaded', () => {
     analyze(params.get('ticker'));
   }
 
+  // TP/SL toggle — toggles visibility of the 3 guide-line datasets live
+  const tpSlToggle = document.getElementById('tpSlToggle');
+  if (tpSlToggle) {
+    tpSlToggle.addEventListener('change', () => {
+      if (!priceChartInstance) return;
+      const ds = priceChartInstance.data.datasets;
+      [ds.length - 3, ds.length - 2, ds.length - 1].forEach(i => {
+        if (ds[i]) ds[i].hidden = !tpSlToggle.checked;
+      });
+      priceChartInstance.update();
+    });
+  }
+
   // AI Report buttons
   document.getElementById('reportBtnBasic').addEventListener('click', () => {
     if (!currentData) return;
@@ -481,7 +500,7 @@ function renderResult(data) {
   rl.innerHTML = data.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('');
 
   // Chart
-  renderCharts(data.chart);
+  renderCharts(data.chart, data.tp_sl, data.currency || 'USD');
 }
 
 function renderIndicators(ind) {
@@ -598,13 +617,35 @@ function renderSignalCards(reasons) {
   document.getElementById('signalCards').innerHTML = cards.join('');
 }
 
-function renderCharts(chart) {
+function renderCharts(chart, tpSl, currency) {
   if (priceChartInstance) priceChartInstance.destroy();
   if (volumeChartInstance) volumeChartInstance.destroy();
 
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#94a3b8' : '#888';
+
+  // TP/SL horizontal lines (hidden by default, toggled via #tpSlToggle)
+  const tpSlToggle = document.getElementById('tpSlToggle');
+  const tpSlInfo = document.getElementById('tpSlInfo');
+  const showTpSl = !!(tpSlToggle && tpSlToggle.checked);
+  const sym = currency === 'KRW' ? '₩' : '$';
+  const fmtPrice = (v) => {
+    if (v == null) return '-';
+    return currency === 'KRW' ? Math.round(v).toLocaleString() : v.toFixed(2);
+  };
+  const flatLine = (val) => val == null ? [] : new Array(chart.dates.length).fill(val);
+  if (tpSlInfo) {
+    if (tpSl && tpSl.sl != null) {
+      tpSlInfo.innerHTML = `
+        <span class="tp-sl-badge sl">🛑 SL ${sym}${fmtPrice(tpSl.sl)}</span>
+        <span class="tp-sl-badge tp">🎯 TP1 ${sym}${fmtPrice(tpSl.tp1)}</span>
+        <span class="tp-sl-badge tp">🎯 TP2 ${sym}${fmtPrice(tpSl.tp2)}</span>
+        ${tpSl.rr ? `<span>R:R ${tpSl.rr}:1</span>` : ''}`;
+    } else {
+      tpSlInfo.innerHTML = '';
+    }
+  }
 
   // Build signal marker datasets — bullish (green triangle up) and bearish (red triangle down)
   // Group signals by (index, side) so multiple same-day signals stack into one marker.
@@ -776,6 +817,10 @@ function renderCharts(chart) {
           pointBorderWidth: 2,
           order: 2,
         },
+        // ── TP/SL horizontal guide lines (hidden by default) ──
+        { label: `🛑 손절 ${sym}${fmtPrice(tpSl && tpSl.sl)}`, data: flatLine(tpSl && tpSl.sl), borderColor: '#dc2626', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, fill: false, hidden: !showTpSl, order: 8 },
+        { label: `🎯 익절1 ${sym}${fmtPrice(tpSl && tpSl.tp1)}`, data: flatLine(tpSl && tpSl.tp1), borderColor: '#16a34a', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, fill: false, hidden: !showTpSl, order: 9 },
+        { label: `🎯 익절2 ${sym}${fmtPrice(tpSl && tpSl.tp2)}`, data: flatLine(tpSl && tpSl.tp2), borderColor: '#15803d', borderWidth: 1.5, pointRadius: 0, fill: false, hidden: !showTpSl, order: 10 },
       ],
     },
     options: {
