@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -38,6 +38,12 @@ def _new_session():
     return None
 
 app = Flask(__name__)
+
+
+def _sse(obj):
+    """Encode an object as a Server-Sent Event frame."""
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
 
 # ─── Simple in-memory cache ───
 _cache = {}
@@ -2440,14 +2446,27 @@ def generate_report(ticker):
         if mode not in ("basic", "deep"):
             mode = "basic"
 
-        # Report cache: 1 hour (more aggressive caching since reports cost API calls)
+        # Report cache: 1 hour. For cached hits we still return SSE so the
+        # client code path is unified — just emit the full report + done.
         cache_key = f"report_{mode}_{ticker}"
+        cached_entry = None
         if cache_key in _cache:
             val, ts = _cache[cache_key]
             if _time.time() - ts < 3600:
-                cached_result = dict(val) if isinstance(val, dict) else {"report": val}
-                cached_result["cached"] = True
-                return jsonify(cached_result)
+                cached_entry = dict(val) if isinstance(val, dict) else {"report": val}
+                cached_entry["cached"] = True
+
+        if cached_entry is not None:
+            def gen_cached():
+                yield _sse({"type": "start", "mode": mode, "cached": True})
+                yield _sse({"type": "chunk", "text": cached_entry.get("report", "")})
+                meta = {k: v for k, v in cached_entry.items() if k != "report"}
+                yield _sse({"type": "done", **meta})
+            return Response(
+                stream_with_context(gen_cached()),
+                mimetype="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
 
         # Reuse analysis cache if available; otherwise analyze fresh
         is_kr = ticker.isdigit() and len(ticker) == 6
@@ -2614,14 +2633,12 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         # deep:  web_search + adaptive thinking — thorough (~25-40K tokens, ~$0.30)
         model_id = "claude-sonnet-4-6"
         client = anthropic.Anthropic(api_key=api_key)
-        messages = [{
-            "role": "user",
-            "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
-        }]
+        prompt_block = {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
+        messages = [{"role": "user", "content": [prompt_block]}]
 
         stream_kwargs = {
             "model": model_id,
-            "max_tokens": 3000,
+            "max_tokens": 2000,
             "messages": messages,
         }
         if mode == "deep":
@@ -2633,81 +2650,97 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
             stream_kwargs["thinking"] = {"type": "adaptive"}
             stream_kwargs["output_config"] = {"effort": "low"}
 
-        with client.messages.stream(**stream_kwargs) as stream:
-            response = stream.get_final_message()
-
-        # Handle server-side tool iteration limit (pause_turn) — deep mode only
-        if mode == "deep" and response.stop_reason == "pause_turn":
-            stream_kwargs["messages"] = [
-                {"role": "user", "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}]},
-                {"role": "assistant", "content": response.content},
-            ]
-            with client.messages.stream(**stream_kwargs) as stream2:
-                response = stream2.get_final_message()
-
-        # Concatenate all text blocks (tool_use and thinking blocks are separate)
-        report_text = "".join(b.text for b in response.content if b.type == "text")
-
-        if not report_text:
-            return jsonify({"error": "리포트 생성에 실패했습니다."}), 500
-
-        # Parse noise score from metadata comment and strip it from display
-        noise_score = None
-        meta_match = re.search(r'<!--\s*META:noise=(\d+)\s*-->', report_text)
-        if meta_match:
+        def gen_stream():
             try:
-                noise_score = int(meta_match.group(1))
-                noise_score = max(0, min(100, noise_score))
-            except ValueError:
-                pass
-            report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
+                yield _sse({"type": "start", "mode": mode, "cached": False})
+                report_buf = []
 
-        # Compute cost (Sonnet 4.6: $3/M input, $15/M output,
-        # cache read $0.30/M, cache write $3.75/M)
-        usage = response.usage
-        input_tokens = usage.input_tokens
-        output_tokens = usage.output_tokens
-        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                with client.messages.stream(**stream_kwargs) as stream:
+                    for text_chunk in stream.text_stream:
+                        if text_chunk:
+                            report_buf.append(text_chunk)
+                            yield _sse({"type": "chunk", "text": text_chunk})
+                    response = stream.get_final_message()
 
-        cost_usd = (
-            input_tokens * 3
-            + output_tokens * 15
-            + cache_read * 0.30
-            + cache_write * 3.75
-        ) / 1_000_000
-        cost_krw = round(cost_usd * 1400)
+                # pause_turn continuation (deep mode only)
+                if mode == "deep" and response.stop_reason == "pause_turn":
+                    stream_kwargs["messages"] = [
+                        {"role": "user", "content": [prompt_block]},
+                        {"role": "assistant", "content": response.content},
+                    ]
+                    with client.messages.stream(**stream_kwargs) as stream2:
+                        for text_chunk in stream2.text_stream:
+                            if text_chunk:
+                                report_buf.append(text_chunk)
+                                yield _sse({"type": "chunk", "text": text_chunk})
+                        response = stream2.get_final_message()
 
-        result = {
-            "report": report_text,
-            "cached": False,
-            "model": "Claude Sonnet 4.6",
-            "model_id": model_id,
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_read_tokens": cache_read,
-                "cache_creation_tokens": cache_write,
-                "total_tokens": input_tokens + output_tokens + cache_read + cache_write,
-            },
-            "cost": {
-                "usd": round(cost_usd, 4),
-                "krw": cost_krw,
-            },
-            "noise_score": noise_score,
-            "mode": mode,
-            "web_search_used": mode == "deep",
-        }
-        cache_set(cache_key, result)
-        del response
-        del client
-        gc.collect()
-        return jsonify(result)
+                report_text = "".join(report_buf)
+                if not report_text:
+                    yield _sse({"type": "error", "error": "리포트 생성에 실패했습니다."})
+                    return
 
-    except anthropic.AuthenticationError:
-        return jsonify({"error": "API Key가 유효하지 않습니다. Render 환경변수의 ANTHROPIC_API_KEY를 확인해주세요."}), 500
-    except anthropic.RateLimitError:
-        return jsonify({"error": "Claude API 요청 제한. 잠시 후 다시 시도해주세요."}), 429
+                # Parse noise score
+                noise_score = None
+                meta_match = re.search(r'<!--\s*META:noise=(\d+)\s*-->', report_text)
+                if meta_match:
+                    try:
+                        noise_score = int(meta_match.group(1))
+                        noise_score = max(0, min(100, noise_score))
+                    except ValueError:
+                        pass
+                    report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
+
+                # Cost (Sonnet 4.6)
+                usage = response.usage
+                input_tokens = usage.input_tokens
+                output_tokens = usage.output_tokens
+                cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                cost_usd = (
+                    input_tokens * 3
+                    + output_tokens * 15
+                    + cache_read * 0.30
+                    + cache_write * 3.75
+                ) / 1_000_000
+                cost_krw = round(cost_usd * 1400)
+
+                result = {
+                    "report": report_text,
+                    "cached": False,
+                    "model": "Claude Sonnet 4.6",
+                    "model_id": model_id,
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cache_read_tokens": cache_read,
+                        "cache_creation_tokens": cache_write,
+                        "total_tokens": input_tokens + output_tokens + cache_read + cache_write,
+                    },
+                    "cost": {"usd": round(cost_usd, 4), "krw": cost_krw},
+                    "noise_score": noise_score,
+                    "mode": mode,
+                    "web_search_used": mode == "deep",
+                }
+                cache_set(cache_key, result)
+                meta_event = {k: v for k, v in result.items() if k != "report"}
+                yield _sse({"type": "done", **meta_event})
+                gc.collect()
+
+            except anthropic.AuthenticationError:
+                yield _sse({"type": "error", "error": "API Key가 유효하지 않습니다."})
+            except anthropic.RateLimitError:
+                yield _sse({"type": "error", "error": "Claude API 요청 제한. 잠시 후 다시 시도해주세요."})
+            except Exception as e:
+                traceback.print_exc()
+                yield _sse({"type": "error", "error": f"리포트 생성 오류: {str(e)}"})
+
+        return Response(
+            stream_with_context(gen_stream()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": f"리포트 생성 오류: {str(e)}"}), 500

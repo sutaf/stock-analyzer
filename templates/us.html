@@ -1030,52 +1030,97 @@ async function generateReport(ticker, mode = 'basic') {
   btnBasic.disabled = true;
   btnDeep.disabled = true;
 
-  // Update loading message by mode
   const loadingMsg = loading.querySelector('p');
   if (loadingMsg) {
     loadingMsg.textContent = mode === 'deep'
-      ? 'Claude가 웹 검색 중입니다... (1-2분 소요)'
-      : 'Claude가 데이터를 분석 중입니다...';
+      ? 'Claude가 웹 검색 중입니다...'
+      : 'Claude가 분석을 시작합니다...';
   }
-
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  try {
-    const res = await fetch(`/api/report/${encodeURIComponent(ticker)}?mode=${mode}`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+  let accumulated = '';
+  let firstChunkSeen = false;
 
-    content.innerHTML = renderMarkdown(data.report);
+  try {
+    const res = await fetch(`/api/report/${encodeURIComponent(ticker)}?mode=${mode}`, {
+      headers: { Accept: 'text/event-stream' },
+    });
+    if (!res.ok || !res.body) {
+      const txt = await res.text();
+      throw new Error(txt || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let doneMeta = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Parse SSE frames (delimited by \n\n)
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() || '';
+      for (const frame of frames) {
+        const line = frame.trim();
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        let msg;
+        try { msg = JSON.parse(payload); } catch { continue; }
+
+        if (msg.type === 'start') {
+          // Nothing to do
+        } else if (msg.type === 'chunk') {
+          if (!firstChunkSeen) {
+            firstChunkSeen = true;
+            loading.style.display = 'none';
+          }
+          accumulated += msg.text;
+          // Strip the noise metadata tail for display; final rendering happens on done
+          const display = accumulated.replace(/<!--\s*META:noise=\d+\s*-->\s*$/, '');
+          content.innerHTML = renderMarkdown(display);
+        } else if (msg.type === 'done') {
+          doneMeta = msg;
+        } else if (msg.type === 'error') {
+          throw new Error(msg.error || '리포트 생성 오류');
+        }
+      }
+    }
+
+    if (!firstChunkSeen) loading.style.display = 'none';
+    const finalText = accumulated.replace(/<!--\s*META:noise=\d+\s*-->/g, '').trim();
+    content.innerHTML = renderMarkdown(finalText);
     document.getElementById('reportPdfBtn').style.display = 'inline-flex';
 
-    // Model badge
-    if (data.model) {
-      modelBadge.textContent = data.model;
+    if (doneMeta && doneMeta.model) {
+      modelBadge.textContent = doneMeta.model;
       modelBadge.style.display = 'inline-block';
     }
-
-    // Footer: noise + web-search + model + tokens + cost
     const parts = [];
-    if (data.noise_score != null) {
-      const noiseCls = data.noise_score < 35 ? 'low' : data.noise_score < 65 ? 'mid' : 'high';
-      const noiseLabel = data.noise_score < 35 ? '낮음' : data.noise_score < 65 ? '중간' : '높음';
-      parts.push(`<span class="noise-indicator ${noiseCls}">📊 노이즈 ${data.noise_score} (${noiseLabel})</span>`);
+    if (doneMeta && doneMeta.noise_score != null) {
+      const n = doneMeta.noise_score;
+      const cls = n < 35 ? 'low' : n < 65 ? 'mid' : 'high';
+      const label = n < 35 ? '낮음' : n < 65 ? '중간' : '높음';
+      parts.push(`<span class="noise-indicator ${cls}">📊 노이즈 ${n} (${label})</span>`);
     }
-    if (data.web_search_used) {
+    if (doneMeta && doneMeta.web_search_used) {
       parts.push(`<span class="noise-indicator low" style="background:#dbeafe;color:#1e40af;">🔎 실시간 웹검색</span>`);
     }
-    if (data.cached) {
+    if (doneMeta && doneMeta.cached) {
       parts.push(`<span class="cached-badge">⚡ 캐시됨</span>`);
     }
-    if (data.model) {
-      parts.push(`<span class="meta-item"><strong>모델:</strong> ${escapeHtml(data.model)}</span>`);
+    if (doneMeta && doneMeta.model) {
+      parts.push(`<span class="meta-item"><strong>모델:</strong> ${escapeHtml(doneMeta.model)}</span>`);
     }
-    if (data.usage) {
-      const t = data.usage.total_tokens || (data.usage.input_tokens + data.usage.output_tokens);
+    if (doneMeta && doneMeta.usage) {
+      const u = doneMeta.usage;
+      const t = u.total_tokens || (u.input_tokens + u.output_tokens);
       parts.push(`<span class="meta-item"><strong>토큰:</strong> ${t.toLocaleString()}</span>`);
     }
-    if (data.cost) {
-      parts.push(`<span class="cost-badge">💰 $${data.cost.usd} (${data.cost.krw.toLocaleString()}원)</span>`);
+    if (doneMeta && doneMeta.cost) {
+      parts.push(`<span class="cost-badge">💰 $${doneMeta.cost.usd} (${doneMeta.cost.krw.toLocaleString()}원)</span>`);
     }
     if (parts.length > 0) {
       footer.innerHTML = parts.join('');
