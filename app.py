@@ -491,6 +491,82 @@ def detect_chart_signals(df, limit=120):
             elif r <= -0.05:
                 add(i, "big_down", f"급락 {r*100:.1f}%", False, "⚠️")
 
+    # ─── Leading signals ───────────────────────────────────────────────
+    # Pivot detection on price and RSI (strict local max/min with 3-bar windows).
+    def _pivots(series, win=3):
+        peaks, troughs = [], []
+        for k in range(win, len(series) - win):
+            v = series.iloc[k]
+            if pd.isna(v):
+                continue
+            left = series.iloc[k-win:k]
+            right = series.iloc[k+1:k+win+1]
+            if left.isna().any() or right.isna().any():
+                continue
+            if v > left.max() and v >= right.max():
+                peaks.append(k)
+            elif v < left.min() and v <= right.min():
+                troughs.append(k)
+        return peaks, troughs
+
+    def _nearby(arr, target, max_dist=3):
+        cand = [a for a in arr if abs(a - target) <= max_dist]
+        return min(cand, key=lambda a: abs(a - target)) if cand else None
+
+    p_peaks, p_troughs = _pivots(close, 3)
+    r_peaks, r_troughs = _pivots(rsi, 3)
+
+    # Bearish divergence: higher high in price, lower high in RSI (reversal-down lead).
+    for j in range(1, len(p_peaks)):
+        p2, p1 = p_peaks[j], p_peaks[j-1]
+        if not (5 <= p2 - p1 <= 35):
+            continue
+        if close.iloc[p2] <= close.iloc[p1] * 1.005:
+            continue
+        r2 = _nearby(r_peaks, p2, 3)
+        r1 = _nearby(r_peaks, p1, 3)
+        if r1 is None or r2 is None or r2 == r1:
+            continue
+        if rsi.iloc[r2] < rsi.iloc[r1] * 0.98:
+            add(p2, "bear_div", "약세 다이버전스", False, "🔻")
+
+    # Bullish divergence: lower low in price, higher low in RSI (reversal-up lead).
+    for j in range(1, len(p_troughs)):
+        t2, t1 = p_troughs[j], p_troughs[j-1]
+        if not (5 <= t2 - t1 <= 35):
+            continue
+        if close.iloc[t2] >= close.iloc[t1] * 0.995:
+            continue
+        r2 = _nearby(r_troughs, t2, 3)
+        r1 = _nearby(r_troughs, t1, 3)
+        if r1 is None or r2 is None or r2 == r1:
+            continue
+        if rsi.iloc[r2] > rsi.iloc[r1] * 1.02:
+            add(t2, "bull_div", "강세 다이버전스", True, "🔺")
+
+    # Bollinger squeeze: fire only when BB width drops into the bottom 10% of its
+    # 60-bar range AND at least 20 bars have passed since the last squeeze event.
+    bb_mid_safe = bb_mid.replace(0, pd.NA)
+    bb_width = (bb_upper - bb_lower) / bb_mid_safe
+    squeeze_fired = [False] * len(df_r)
+    last_squeeze = -999
+    for k in range(60, len(df_r)):
+        w = bb_width.iloc[k]
+        if pd.isna(w):
+            continue
+        window = bb_width.iloc[k-59:k+1]
+        if window.isna().any():
+            continue
+        wmin = float(window.min())
+        wmax = float(window.max())
+        if wmax - wmin <= 0:
+            continue
+        pct = (w - wmin) / (wmax - wmin)  # 0 = tightest, 1 = widest
+        if pct <= 0.10 and (k - last_squeeze) >= 20:
+            add(k, "bb_squeeze", "BB 스퀴즈 (변동성 최저)", True, "🤏")
+            squeeze_fired[k] = True
+            last_squeeze = k
+
     # Dedup: allow at most one signal per (date, type)
     seen = set()
     deduped = []
