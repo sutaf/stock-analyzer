@@ -625,18 +625,16 @@ function renderCharts(chart) {
     if (!sigMeta[s.index]) sigMeta[s.index] = [];
     sigMeta[s.index].push(s);
   });
-  // Compute y-offsets after grouping: when both sides exist on the same date,
-  // widen the separation so the two triangles don't overlap.
+  // Place markers directly on the price line. Only offset when both bull and
+  // bear signals hit the same date so the two triangles don't overlap.
   chart.dates.forEach((_, i) => {
     const price = chart.close[i];
     if (price == null) return;
     const bullN = sigBullGroup[i] ? sigBullGroup[i].length : 0;
     const bearN = sigBearGroup[i] ? sigBearGroup[i].length : 0;
     const conflict = bullN > 0 && bearN > 0;
-    const baseOff = conflict ? 0.035 : 0.015; // 3.5% vs 1.5%
-    const stepOff = 0.005;
-    if (bullN > 0) sigBullData[i] = price * (1 - baseOff - stepOff * (bullN - 1));
-    if (bearN > 0) sigBearData[i] = price * (1 + baseOff + stepOff * (bearN - 1));
+    if (bullN > 0) sigBullData[i] = conflict ? price * 0.985 : price;
+    if (bearN > 0) sigBearData[i] = conflict ? price * 1.015 : price;
   });
 
   // Tiny count badge when 2+ signals stack on same date/side. Badge sits just
