@@ -2047,8 +2047,18 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
 ### 📋 요약
 3-4줄 (웹 검색 반영)
 
-### ✅ 강점 / ⚠️ 약점
-각 3가지
+### ✅ 강점
+긍정적 시그널 **3가지** — 반드시 아래 형식처럼 **각 항목을 별도 라인**으로 작성:
+```
+1. **제목**: 설명
+
+2. **제목**: 설명
+
+3. **제목**: 설명
+```
+
+### ⚠️ 약점
+주의해야 할 리스크 **3가지** — 위 강점과 동일 형식 (각 항목 별도 라인)
 
 ### 🎯 익절/손절 라인
 - **익절 1차**: {currency_symbol}가격 — 이유
@@ -2057,12 +2067,17 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
 - **R:R**: X:1
 
 ### 🔄 역발상 의견
-점수와 반대되는 관점 2-3가지 (웹 검색의 소수 의견 활용)
+점수와 반대되는 관점 **2-3가지** — 위와 동일하게 **각 항목을 별도 라인**으로 번호 매겨 작성. 웹 검색의 소수 의견 활용.
 
 ### 📊 커뮤니티 노이즈 평가 (웹 검색 기반)
-0-100 노이즈 점수를 직접 산출:
-- 의견 분산도, 볼륨 이상도, 정보 품질, 감성 일관성
-- 투자 판단에 어떻게 반영할지 설명
+0-100 노이즈 점수를 직접 산출하고, 산정 근거를 **서술형 문장 또는 bullet 리스트**로 작성해주세요.
+표(table) 형식은 사용하지 말고, 다음처럼 작성:
+- **노이즈 점수: NN/100 (낮음/중간/높음)**
+- 의견 분산도: ...
+- 볼륨 이상도: ...
+- 정보 품질: ...
+- 감성 일관성: ...
+- **투자 판단 반영**: (한두 문장)
 
 ### 🧭 투자 전략 / 🎬 결론
 
@@ -2082,9 +2097,10 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 del _cache[k]
         gc.collect()
 
-        # Call Claude with web_search + adaptive thinking. Runs on Cloud Run
-        # with 1GB+ RAM so we can afford the full Opus 4.7 + thinking budget.
-        model_id = "claude-opus-4-7"
+        # Call Claude with web_search + adaptive thinking.
+        # Sonnet 4.6: strong quality at 40% the cost of Opus 4.7 for structured
+        # report-style outputs where the web-search grounding does most of the work.
+        model_id = "claude-sonnet-4-6"
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
@@ -2137,16 +2153,16 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 pass
             report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
 
-        # Compute cost (Opus 4.7: $5/M input, $25/M output)
+        # Compute cost (Sonnet 4.6: $3/M input, $15/M output)
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        cost_usd = (input_tokens * 5 + output_tokens * 25) / 1_000_000
+        cost_usd = (input_tokens * 3 + output_tokens * 15) / 1_000_000
         cost_krw = round(cost_usd * 1400)
 
         result = {
             "report": report_text,
             "cached": False,
-            "model": "Claude Opus 4.7",
+            "model": "Claude Sonnet 4.6",
             "model_id": model_id,
             "usage": {
                 "input_tokens": input_tokens,

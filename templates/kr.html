@@ -712,63 +712,7 @@ async function generateReport(ticker) {
   }
 }
 
-function renderMarkdown(md) {
-  const lines = md.split('\n');
-  const out = [];
-  let inList = false;
-  let buffer = [];
-
-  const flushBuffer = () => {
-    if (buffer.length === 0) return;
-    const text = buffer.join(' ').trim();
-    if (text) out.push(`<p>${applyInline(text)}</p>`);
-    buffer = [];
-  };
-  const closeList = () => {
-    if (inList) { out.push('</ul>'); inList = false; }
-  };
-  const applyInline = (s) => {
-    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-    s = s.replace(/`([^`]+)`/g, '<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.88em;">$1</code>');
-    return s;
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\r$/, '');
-    const esc = escapeHtml(line);
-
-    if (/^(---+|\*\*\*+)$/.test(line.trim())) {
-      flushBuffer(); closeList();
-      out.push('<hr>');
-      continue;
-    }
-    let m;
-    if ((m = esc.match(/^####\s+(.+)$/))) { flushBuffer(); closeList(); out.push(`<h4>${applyInline(m[1])}</h4>`); continue; }
-    if ((m = esc.match(/^###\s+(.+)$/)))  { flushBuffer(); closeList(); out.push(`<h3>${applyInline(m[1])}</h3>`); continue; }
-    if ((m = esc.match(/^##\s+(.+)$/)))   { flushBuffer(); closeList(); out.push(`<h2>${applyInline(m[1])}</h2>`); continue; }
-    if ((m = esc.match(/^#\s+(.+)$/)))    { flushBuffer(); closeList(); out.push(`<h2>${applyInline(m[1])}</h2>`); continue; }
-    if ((m = esc.match(/^\s*[-*]\s+(.+)$/))) {
-      flushBuffer();
-      if (!inList) { out.push('<ul>'); inList = true; }
-      out.push(`<li>${applyInline(m[1])}</li>`);
-      continue;
-    }
-    if ((m = esc.match(/^>\s+(.+)$/))) {
-      flushBuffer(); closeList();
-      out.push(`<blockquote>${applyInline(m[1])}</blockquote>`);
-      continue;
-    }
-    if (line.trim() === '') {
-      flushBuffer(); closeList();
-      continue;
-    }
-    if (inList) { closeList(); }
-    buffer.push(esc);
-  }
-  flushBuffer(); closeList();
-  return out.join('\n');
-}
+// renderMarkdown is provided by common.js
 
 async function loadCommunity(ticker) {
   document.getElementById('communityLoading').style.display = 'block';

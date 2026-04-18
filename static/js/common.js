@@ -161,5 +161,120 @@ function getScoreClass(score) {
   });
 })();
 
+// ─── Shared markdown renderer for AI reports / Q&A answers ───
+// Supports: headings, ordered/unordered lists, tables, blockquotes, hr, bold/italic/code.
+function renderMarkdown(md) {
+  if (!md) return '';
+
+  // Preprocessing: if Claude wrote "1. A  2. B  3. C" all on one line,
+  // split each numbered item onto its own line so the list renderer picks it up.
+  md = md.replace(/(\S)[ \t]+(\d+)\.[ \t]+(?=\*\*)/g, '$1\n\n$2. ');
+
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  let olOpen = false;
+  let ulOpen = false;
+  let buffer = [];
+
+  const applyInline = (s) => {
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    s = s.replace(/`([^`]+)`/g, '<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.88em;">$1</code>');
+    return s;
+  };
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    const text = buffer.join(' ').trim();
+    if (text) out.push(`<p>${applyInline(text)}</p>`);
+    buffer = [];
+  };
+  const closeLists = () => {
+    if (ulOpen) { out.push('</ul>'); ulOpen = false; }
+    if (olOpen) { out.push('</ol>'); olOpen = false; }
+  };
+  const ensureUl = () => { if (olOpen) { out.push('</ol>'); olOpen = false; } if (!ulOpen) { out.push('<ul>'); ulOpen = true; } };
+  const ensureOl = () => { if (ulOpen) { out.push('</ul>'); ulOpen = false; } if (!olOpen) { out.push('<ol>'); olOpen = true; } };
+
+  const isTableSeparator = (s) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+  const splitRow = (s) => s.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+
+  while (i < lines.length) {
+    const rawLine = lines[i].replace(/\r$/, '');
+
+    // Table: current line has pipes and next line is separator
+    if (rawLine.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      flushBuffer(); closeLists();
+      const header = splitRow(rawLine);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      let html = '<div style="overflow-x:auto;margin:16px 0;"><table class="md-table" style="width:100%;border-collapse:collapse;font-size:0.9rem;">';
+      html += '<thead><tr>' + header.map(h => `<th style="padding:10px 14px;text-align:left;border-bottom:2px solid var(--border);font-weight:700;background:var(--bg3);">${applyInline(escapeHtml(h))}</th>`).join('') + '</tr></thead>';
+      html += '<tbody>' + rows.map(r => '<tr>' + r.map(c => `<td style="padding:10px 14px;border-bottom:1px solid var(--border);">${applyInline(escapeHtml(c))}</td>`).join('') + '</tr>').join('') + '</tbody>';
+      html += '</table></div>';
+      out.push(html);
+      continue;
+    }
+
+    const esc = escapeHtml(rawLine);
+
+    // Horizontal rule
+    if (/^(---+|\*\*\*+)$/.test(rawLine.trim())) { flushBuffer(); closeLists(); out.push('<hr>'); i++; continue; }
+
+    // Headings
+    let m;
+    if ((m = esc.match(/^####\s+(.+)$/))) { flushBuffer(); closeLists(); out.push(`<h4>${applyInline(m[1])}</h4>`); i++; continue; }
+    if ((m = esc.match(/^###\s+(.+)$/)))  { flushBuffer(); closeLists(); out.push(`<h3>${applyInline(m[1])}</h3>`); i++; continue; }
+    if ((m = esc.match(/^##\s+(.+)$/)))   { flushBuffer(); closeLists(); out.push(`<h2>${applyInline(m[1])}</h2>`); i++; continue; }
+    if ((m = esc.match(/^#\s+(.+)$/)))    { flushBuffer(); closeLists(); out.push(`<h2>${applyInline(m[1])}</h2>`); i++; continue; }
+
+    // Ordered list: "1. ..." or "1) ..."
+    if ((m = esc.match(/^\s*(\d+)[.)]\s+(.+)$/))) {
+      flushBuffer();
+      ensureOl();
+      out.push(`<li>${applyInline(m[2])}</li>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list
+    if ((m = esc.match(/^\s*[-*]\s+(.+)$/))) {
+      flushBuffer();
+      ensureUl();
+      out.push(`<li>${applyInline(m[1])}</li>`);
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    if ((m = esc.match(/^>\s+(.+)$/))) {
+      flushBuffer(); closeLists();
+      out.push(`<blockquote>${applyInline(m[1])}</blockquote>`);
+      i++;
+      continue;
+    }
+
+    // Blank line
+    if (rawLine.trim() === '') {
+      flushBuffer(); closeLists();
+      i++;
+      continue;
+    }
+
+    // Regular paragraph line
+    if (olOpen || ulOpen) closeLists();
+    buffer.push(esc);
+    i++;
+  }
+
+  flushBuffer(); closeLists();
+  return out.join('\n');
+}
+
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', initTheme);
