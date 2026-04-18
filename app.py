@@ -1399,6 +1399,11 @@ def etf_page():
     return render_template("etf.html")
 
 
+@app.route("/portfolio")
+def portfolio_page():
+    return render_template("portfolio.html")
+
+
 @app.route("/api/peers/<ticker>")
 def peers_api(ticker):
     """Return simple OHLC + score snapshot for 3-5 peer tickers."""

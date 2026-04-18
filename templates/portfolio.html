@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}포트폴리오 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">💼 내 포트폴리오</h1>
+  <p class="subtitle">보유 종목의 실시간 수익률과 P&L 대시보드</p>
+</section>
+
+<div class="container">
+  <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+    <button class="btn btn-primary" onclick="openAddPositionModal()">➕ 포지션 추가</button>
+    <button class="btn btn-secondary" onclick="openAddAlertModal()">🔔 알림 추가</button>
+    <button class="btn btn-secondary btn-sm" onclick="refreshPortfolio()">🔄 새로고침</button>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="summary-grid" id="portfolioSummary" style="margin-bottom:28px;"></div>
+
+  <!-- Positions table -->
+  <div class="card" style="margin-bottom:24px;">
+    <h3 style="font-weight:700;margin-bottom:14px;">보유 종목</h3>
+    <div id="positionsLoading" class="loading"><div class="spinner"></div></div>
+    <div id="positionsList" style="display:none;"></div>
+    <div id="positionsEmpty" style="display:none;color:var(--text3);font-size:0.9rem;text-align:center;padding:30px;">
+      아직 포지션이 없습니다. "➕ 포지션 추가" 버튼으로 시작하세요.
+    </div>
+  </div>
+
+  <!-- Active alerts -->
+  <div class="card">
+    <h3 style="font-weight:700;margin-bottom:14px;">🔔 활성 알림</h3>
+    <div id="alertsList"></div>
+  </div>
+</div>
+
+<!-- Add Position Modal -->
+<div id="posModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border-radius:var(--radius);padding:28px;width:100%;max-width:440px;margin:20px;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+    <h3 style="margin-bottom:18px;font-weight:800;">포지션 추가</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">시장</span>
+        <select id="posType" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+          <option value="us">미국</option>
+          <option value="kr">한국</option>
+        </select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">티커 / 코드 <span style="color:var(--danger);">*</span></span>
+        <input id="posTicker" placeholder="AAPL 또는 005930" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">매수 단가 <span style="color:var(--danger);">*</span></span>
+        <input id="posPrice" type="number" step="0.01" placeholder="150.00" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">수량 <span style="color:var(--danger);">*</span></span>
+        <input id="posQty" type="number" step="1" placeholder="10" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">매수일</span>
+        <input id="posDate" type="date" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">메모</span>
+        <input id="posNotes" placeholder="선택 사항" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="closePosModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="savePosition()">추가</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Alert Modal -->
+<div id="alertModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border-radius:var(--radius);padding:28px;width:100%;max-width:440px;margin:20px;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+    <h3 style="margin-bottom:18px;font-weight:800;">가격 알림 추가</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">시장</span>
+        <select id="alertType" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+          <option value="us">미국</option>
+          <option value="kr">한국</option>
+        </select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">티커 / 코드 <span style="color:var(--danger);">*</span></span>
+        <input id="alertTicker" placeholder="AAPL 또는 005930" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">조건</span>
+        <select id="alertCond" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+          <option value="above">이상 (상단 돌파 시)</option>
+          <option value="below">이하 (하단 이탈 시)</option>
+        </select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.85rem;">
+        <span style="color:var(--text3);">기준 가격 <span style="color:var(--danger);">*</span></span>
+        <input id="alertThreshold" type="number" step="0.01" placeholder="280.00" style="height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);">
+      </label>
+    </div>
+    <p style="font-size:0.75rem;color:var(--text3);margin-top:12px;">
+      💡 이 사이트를 열어둔 동안에만 가격이 확인됩니다. 24/7 알림은 외부 서비스가 필요합니다.
+    </p>
+    <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="closeAlertModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="saveAlert()">추가</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openAddPositionModal() {
+  document.getElementById('posModal').style.display = 'flex';
+  document.getElementById('posDate').value = new Date().toISOString().slice(0,10);
+}
+function closePosModal() { document.getElementById('posModal').style.display = 'none'; }
+function openAddAlertModal() { document.getElementById('alertModal').style.display = 'flex'; }
+function closeAlertModal() { document.getElementById('alertModal').style.display = 'none'; }
+
+function savePosition() {
+  const type = document.getElementById('posType').value;
+  const ticker = document.getElementById('posTicker').value.trim().toUpperCase();
+  const buy_price = parseFloat(document.getElementById('posPrice').value);
+  const quantity = parseFloat(document.getElementById('posQty').value);
+  const buy_date = document.getElementById('posDate').value;
+  const notes = document.getElementById('posNotes').value.trim();
+
+  if (!ticker || isNaN(buy_price) || isNaN(quantity) || quantity <= 0 || buy_price <= 0) {
+    alert('티커, 매수단가, 수량은 필수이며 양수여야 합니다.');
+    return;
+  }
+  addPortfolioPosition({ type, ticker, buy_price, quantity, buy_date, notes, name: ticker });
+  closePosModal();
+  ['posTicker','posPrice','posQty','posNotes'].forEach(id => document.getElementById(id).value = '');
+  refreshPortfolio();
+}
+
+function saveAlert() {
+  const type = document.getElementById('alertType').value;
+  const ticker = document.getElementById('alertTicker').value.trim().toUpperCase();
+  const condition = document.getElementById('alertCond').value;
+  const threshold = parseFloat(document.getElementById('alertThreshold').value);
+  if (!ticker || isNaN(threshold) || threshold <= 0) {
+    alert('티커와 기준 가격은 필수입니다.');
+    return;
+  }
+  addAlert({ type, ticker, condition, threshold });
+  closeAlertModal();
+  ['alertTicker','alertThreshold'].forEach(id => document.getElementById(id).value = '');
+  renderAlerts();
+}
+
+async function fetchCurrentPrice(type, ticker) {
+  try {
+    const endpoint = type === 'kr'
+      ? `/api/analyze/kr/${encodeURIComponent(ticker)}`
+      : `/api/analyze/us/${encodeURIComponent(ticker)}`;
+    const res = await fetch(endpoint);
+    const data = await res.json();
+    if (data.error) return null;
+    return { price: data.close, name: data.name || ticker };
+  } catch { return null; }
+}
+
+async function refreshPortfolio() {
+  const positions = getPortfolio();
+  const loading = document.getElementById('positionsLoading');
+  const list = document.getElementById('positionsList');
+  const empty = document.getElementById('positionsEmpty');
+  const summaryEl = document.getElementById('portfolioSummary');
+
+  loading.style.display = 'block';
+  list.style.display = 'none';
+  empty.style.display = 'none';
+
+  if (positions.length === 0) {
+    loading.style.display = 'none';
+    empty.style.display = 'block';
+    summaryEl.innerHTML = '';
+    renderAlerts();
+    return;
+  }
+
+  const enriched = await Promise.all(positions.map(async p => {
+    const cur = await fetchCurrentPrice(p.type, p.ticker);
+    const currentPrice = cur?.price ?? null;
+    const name = cur?.name ?? p.name ?? p.ticker;
+    const cost = p.buy_price * p.quantity;
+    const value = currentPrice != null ? currentPrice * p.quantity : null;
+    const pl = value != null ? value - cost : null;
+    const plPct = value != null && cost > 0 ? (pl / cost) * 100 : null;
+    return { ...p, name, currentPrice, cost, value, pl, plPct };
+  }));
+
+  // Totals (by currency)
+  const totals = {};
+  for (const e of enriched) {
+    const key = e.type === 'kr' ? 'KRW' : 'USD';
+    if (!totals[key]) totals[key] = { cost: 0, value: 0 };
+    totals[key].cost += e.cost;
+    if (e.value != null) totals[key].value += e.value;
+  }
+
+  // Render summary per currency
+  summaryEl.innerHTML = Object.entries(totals).map(([ccy, t]) => {
+    const curr = ccy === 'KRW' ? '₩' : '$';
+    const pl = t.value - t.cost;
+    const plPct = t.cost > 0 ? (pl / t.cost) * 100 : 0;
+    const cls = pl >= 0 ? 'change-up' : 'change-down';
+    return `
+      <div class="summary-item"><div class="label">${ccy} 총 매수금액</div><div class="value">${curr}${formatNumber(t.cost)}</div></div>
+      <div class="summary-item"><div class="label">${ccy} 현재 평가</div><div class="value">${curr}${formatNumber(t.value)}</div></div>
+      <div class="summary-item"><div class="label">${ccy} 손익</div><div class="value ${cls}">${pl >= 0 ? '+' : ''}${curr}${formatNumber(Math.abs(pl))}</div></div>
+      <div class="summary-item"><div class="label">${ccy} 수익률</div><div class="value ${cls}">${pl >= 0 ? '+' : ''}${plPct.toFixed(2)}%</div></div>
+    `;
+  }).join('');
+
+  list.innerHTML = `
+    <div style="overflow-x:auto;">
+    <table class="indicator-table" style="width:100%;font-size:0.88rem;">
+      <thead><tr>
+        <th>종목</th><th>수량</th><th>매수가</th><th>현재가</th><th>평가금액</th><th>손익</th><th>수익률</th><th>매수일</th><th></th>
+      </tr></thead>
+      <tbody>
+      ${enriched.map(e => {
+        const curr = e.type === 'kr' ? '₩' : '$';
+        const cls = e.pl != null && e.pl >= 0 ? 'change-up' : 'change-down';
+        const linkHref = e.type === 'kr' ? `/kr?code=${encodeURIComponent(e.ticker)}` : `/us?ticker=${encodeURIComponent(e.ticker)}`;
+        return `<tr>
+          <td><a href="${linkHref}" style="color:var(--primary);font-weight:700;">${escapeHtml(e.ticker)}</a><br><span style="font-size:0.75rem;color:var(--text3);">${escapeHtml(e.name)}</span></td>
+          <td>${e.quantity}</td>
+          <td>${curr}${formatNumber(e.buy_price)}</td>
+          <td>${e.currentPrice != null ? curr + formatNumber(e.currentPrice) : '-'}</td>
+          <td>${e.value != null ? curr + formatNumber(e.value) : '-'}</td>
+          <td class="${cls}">${e.pl != null ? (e.pl >= 0 ? '+' : '-') + curr + formatNumber(Math.abs(e.pl)) : '-'}</td>
+          <td class="${cls}">${e.plPct != null ? (e.plPct >= 0 ? '+' : '') + e.plPct.toFixed(2) + '%' : '-'}</td>
+          <td style="font-size:0.78rem;color:var(--text3);">${escapeHtml(e.buy_date || '-')}</td>
+          <td><button class="btn btn-danger btn-sm" style="padding:4px 10px;font-size:0.75rem;" onclick="deletePos('${e.id}')">삭제</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+  list.style.display = 'block';
+  loading.style.display = 'none';
+
+  renderAlerts();
+}
+
+function deletePos(id) {
+  if (!confirm('이 포지션을 삭제할까요?')) return;
+  removePortfolioPosition(id);
+  refreshPortfolio();
+}
+
+function renderAlerts() {
+  const alerts = getAlerts();
+  const container = document.getElementById('alertsList');
+  if (alerts.length === 0) {
+    container.innerHTML = '<p style="color:var(--text3);font-size:0.88rem;">활성 알림이 없습니다. "🔔 알림 추가"로 설정하세요.</p>';
+    return;
+  }
+  container.innerHTML = alerts.map(a => {
+    const curr = a.type === 'kr' ? '₩' : '$';
+    const condLabel = a.condition === 'above' ? '≥' : '≤';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:${a.enabled ? 'var(--bg3)' : 'var(--bg)'};">
+      <div>
+        <strong>${escapeHtml(a.ticker)}</strong>
+        <span style="color:var(--text2);margin-left:8px;">${condLabel} ${curr}${a.threshold.toLocaleString()}</span>
+        <span style="font-size:0.74rem;color:var(--text3);margin-left:8px;">${a.enabled ? '활성' : '일시중지'}</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:0.74rem;" onclick="toggleAlert('${a.id}');renderAlerts();">${a.enabled ? '일시중지' : '재개'}</button>
+        <button class="btn btn-danger btn-sm" style="padding:4px 10px;font-size:0.74rem;" onclick="if(confirm('삭제?'))(removeAlert('${a.id}'),renderAlerts())">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => { refreshPortfolio(); });
+</script>
+{% endblock %}

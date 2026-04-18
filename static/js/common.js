@@ -161,6 +161,105 @@ function getScoreClass(score) {
   });
 })();
 
+// ─── Portfolio positions (localStorage) ───
+function getPortfolio() {
+  return JSON.parse(localStorage.getItem('portfolio') || '[]');
+}
+
+function savePortfolio(list) {
+  localStorage.setItem('portfolio', JSON.stringify(list));
+}
+
+function addPortfolioPosition(pos) {
+  // pos: { type, ticker, name, buy_price, quantity, buy_date, notes }
+  const list = getPortfolio();
+  list.push({ ...pos, id: Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
+  savePortfolio(list);
+}
+
+function removePortfolioPosition(id) {
+  savePortfolio(getPortfolio().filter(p => p.id !== id));
+}
+
+// ─── Price alerts (localStorage) ───
+function getAlerts() {
+  return JSON.parse(localStorage.getItem('alerts') || '[]');
+}
+
+function saveAlerts(list) {
+  localStorage.setItem('alerts', JSON.stringify(list));
+}
+
+function addAlert(alert) {
+  // alert: { type, ticker, condition: 'above'|'below', threshold, enabled }
+  const list = getAlerts();
+  list.push({ ...alert, id: Date.now() + '-' + Math.random().toString(36).slice(2, 8), enabled: true });
+  saveAlerts(list);
+}
+
+function removeAlert(id) {
+  saveAlerts(getAlerts().filter(a => a.id !== id));
+}
+
+function toggleAlert(id) {
+  const list = getAlerts();
+  const a = list.find(a => a.id === id);
+  if (a) { a.enabled = !a.enabled; saveAlerts(list); }
+}
+
+// Check triggered alerts on page load — call with a function that fetches current price.
+// Uses sessionStorage to avoid spamming the same notification repeatedly.
+async function checkAlertsOnLoad() {
+  const alerts = getAlerts().filter(a => a.enabled);
+  if (alerts.length === 0) return;
+  const triggeredSession = JSON.parse(sessionStorage.getItem('alerts_triggered') || '[]');
+
+  for (const a of alerts) {
+    if (triggeredSession.includes(a.id)) continue;
+    try {
+      const endpoint = a.type === 'kr'
+        ? `/api/analyze/kr/${encodeURIComponent(a.ticker)}`
+        : `/api/analyze/us/${encodeURIComponent(a.ticker)}`;
+      const res = await fetch(endpoint);
+      const data = await res.json();
+      if (data.error || data.close == null) continue;
+      const price = data.close;
+      const hit = (a.condition === 'above' && price >= a.threshold) ||
+                  (a.condition === 'below' && price <= a.threshold);
+      if (hit) {
+        showAlertToast(a, price, data.name || data.ticker);
+        triggeredSession.push(a.id);
+        sessionStorage.setItem('alerts_triggered', JSON.stringify(triggeredSession));
+      }
+    } catch (_) { /* skip */ }
+  }
+}
+
+function showAlertToast(alert, currentPrice, name) {
+  const curr = alert.type === 'kr' ? '₩' : '$';
+  const condLabel = alert.condition === 'above' ? '이상' : '이하';
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    position:fixed; top:80px; right:20px; max-width:340px; z-index:9999;
+    background:var(--bg2); border:1px solid var(--primary); border-left:4px solid var(--primary);
+    border-radius:var(--radius); box-shadow:0 8px 24px rgba(37,99,235,0.25);
+    padding:14px 18px; font-size:0.88rem; animation:slideInRight 0.3s ease-out;`;
+  toast.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div>
+        <div style="font-weight:800;margin-bottom:4px;">🔔 가격 알림</div>
+        <div><strong>${escapeHtml(alert.ticker)}</strong> (${escapeHtml(name || '')})</div>
+        <div style="margin-top:6px;color:var(--text2);">
+          ${curr}${alert.threshold.toLocaleString()} ${condLabel} 도달<br>
+          현재: <strong style="color:var(--primary);">${curr}${Number(currentPrice).toLocaleString()}</strong>
+        </div>
+      </div>
+      <button style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:1.1rem;line-height:1;" onclick="this.parentElement.parentElement.remove()">✕</button>
+    </div>`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 8000);
+}
+
 // ─── Shared markdown renderer for AI reports / Q&A answers ───
 // Supports: headings, ordered/unordered lists, tables, blockquotes, hr, bold/italic/code.
 function renderMarkdown(md) {
@@ -277,4 +376,8 @@ function renderMarkdown(md) {
 }
 
 // ─── Init ───
-document.addEventListener('DOMContentLoaded', initTheme);
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  // Check alerts in background 3s after load (don't block UI)
+  setTimeout(() => { checkAlertsOnLoad().catch(() => {}); }, 3000);
+});

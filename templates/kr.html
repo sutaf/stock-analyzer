@@ -13,6 +13,8 @@
     <input type="text" id="stockInput" placeholder="종목명 또는 코드 (예: 삼성전자, 005930)" autocomplete="off">
     <button class="btn btn-primary" id="analyzeBtn">분석하기</button>
     <button class="btn btn-secondary btn-sm" id="watchlistBtn" style="display:none;">&#x2B50; 관심종목 추가</button>
+    <button class="btn btn-secondary btn-sm" id="addPosBtn" style="display:none;" onclick="quickAddPosition()">💼 포지션 추가</button>
+    <button class="btn btn-secondary btn-sm" id="addAlertBtn" style="display:none;" onclick="quickAddAlert()">🔔 알림</button>
   </div>
 
   <!-- Search suggestions -->
@@ -353,6 +355,8 @@ async function analyzeKR(code) {
   document.getElementById('errorBox').style.display = 'none';
   document.getElementById('resultSection').classList.add('hidden');
   document.getElementById('watchlistBtn').style.display = 'none';
+  document.getElementById('addPosBtn').style.display = 'none';
+  document.getElementById('addAlertBtn').style.display = 'none';
 
   // Reset report + chat panels from previous ticker
   const rs = document.getElementById('reportSection');
@@ -406,6 +410,8 @@ function renderRecentKR() {
 function renderResult(data) {
   document.getElementById('resultSection').classList.remove('hidden');
   document.getElementById('watchlistBtn').style.display = 'inline-flex';
+  document.getElementById('addPosBtn').style.display = 'inline-flex';
+  document.getElementById('addAlertBtn').style.display = 'inline-flex';
 
   // Show chat panel
   initChat(data.code);
@@ -995,6 +1001,42 @@ async function runBacktest(period) {
   } finally {
     loading.style.display = 'none';
   }
+}
+
+// ─── Quick add position / alert from analysis page ───
+function quickAddPosition() {
+  if (!currentData) return;
+  const price = prompt(`${currentData.name} 매수 단가 (₩):`, currentData.close);
+  if (price === null) return;
+  const qty = prompt(`${currentData.name} 수량:`, '10');
+  if (qty === null) return;
+  const buy_price = parseFloat(price);
+  const quantity = parseFloat(qty);
+  if (isNaN(buy_price) || isNaN(quantity) || buy_price <= 0 || quantity <= 0) {
+    alert('올바른 값을 입력해주세요.');
+    return;
+  }
+  addPortfolioPosition({
+    type: 'kr',
+    ticker: currentData.code,
+    name: currentData.name,
+    buy_price, quantity,
+    buy_date: new Date().toISOString().slice(0,10),
+    notes: '',
+  });
+  alert(`포트폴리오에 ${currentData.name} ${quantity}주 추가되었습니다.`);
+}
+
+function quickAddAlert() {
+  if (!currentData) return;
+  const cond = confirm('상단 돌파 시 알림? (취소 시 하단 이탈 알림)') ? 'above' : 'below';
+  const defaultPrice = cond === 'above' ? Math.round(currentData.close * 1.05) : Math.round(currentData.close * 0.95);
+  const threshold = prompt(`${cond === 'above' ? '이상' : '이하'} 알림 기준가 (₩):`, defaultPrice);
+  if (threshold === null) return;
+  const t = parseFloat(threshold);
+  if (isNaN(t) || t <= 0) { alert('올바른 가격을 입력해주세요.'); return; }
+  addAlert({ type: 'kr', ticker: currentData.code, condition: cond, threshold: t });
+  alert(`알림 설정: ${currentData.name} ${cond === 'above' ? '≥' : '≤'} ₩${t.toLocaleString()}`);
 }
 
 // Fetch USD/KRW exchange rate (for cost display)
