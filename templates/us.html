@@ -615,22 +615,28 @@ function renderCharts(chart) {
   const sigMeta = new Array(chart.dates.length).fill(null);     // all signals at idx (both sides)
   (chart.signals || []).forEach(s => {
     if (s.index == null || s.index >= chart.dates.length) return;
-    const price = s.price != null ? s.price : chart.close[s.index];
-    if (price == null) return;
     if (s.bullish) {
       if (!sigBullGroup[s.index]) sigBullGroup[s.index] = [];
       sigBullGroup[s.index].push(s);
-      // Offset grows with number of stacked signals so they sit clear of the line
-      const n = sigBullGroup[s.index].length;
-      sigBullData[s.index] = price * (0.985 - 0.005 * (n - 1));
     } else {
       if (!sigBearGroup[s.index]) sigBearGroup[s.index] = [];
       sigBearGroup[s.index].push(s);
-      const n = sigBearGroup[s.index].length;
-      sigBearData[s.index] = price * (1.015 + 0.005 * (n - 1));
     }
     if (!sigMeta[s.index]) sigMeta[s.index] = [];
     sigMeta[s.index].push(s);
+  });
+  // Compute y-offsets after grouping: when both sides exist on the same date,
+  // widen the separation so the two triangles don't overlap.
+  chart.dates.forEach((_, i) => {
+    const price = chart.close[i];
+    if (price == null) return;
+    const bullN = sigBullGroup[i] ? sigBullGroup[i].length : 0;
+    const bearN = sigBearGroup[i] ? sigBearGroup[i].length : 0;
+    const conflict = bullN > 0 && bearN > 0;
+    const baseOff = conflict ? 0.035 : 0.015; // 3.5% vs 1.5%
+    const stepOff = 0.005;
+    if (bullN > 0) sigBullData[i] = price * (1 - baseOff - stepOff * (bullN - 1));
+    if (bearN > 0) sigBearData[i] = price * (1 + baseOff + stepOff * (bearN - 1));
   });
 
   // Tiny count badge when 2+ signals stack on same date/side. Triangles stay simple;
