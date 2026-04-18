@@ -15,16 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application
 COPY . .
 
-# Cloud Run injects PORT; default to 8080 for local runs
+# Platform injects PORT (Railway, Cloud Run, etc.); fallback to 8080 for local
 ENV PORT=8080
 EXPOSE 8080
 
-# Single worker + threads (keeps memory modest even on 1GB instance).
-# Longer timeout to accommodate Claude Opus 4.7 reports with web_search.
-CMD exec gunicorn \
-    --bind :$PORT \
-    --workers 1 \
-    --threads 4 \
-    --timeout 300 \
-    --worker-class gthread \
-    app:app
+# Wrap in sh -c so ${PORT} is expanded by the shell at container start
+# (some platforms don't do env var substitution on multi-line CMD shell form).
+# Single worker + threads keeps memory modest; long timeout for Claude reports.
+CMD ["sh", "-c", "exec gunicorn --bind :${PORT:-8080} --workers 1 --threads 4 --timeout 300 --worker-class gthread app:app"]
