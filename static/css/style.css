@@ -836,6 +836,178 @@ a:hover { text-decoration: underline; }
   .report-body h3 { font-size: 1rem; }
 }
 
+/* ─── Chat Q&A Panel ─── */
+.chat-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 24px;
+}
+.chat-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #06b6d4 0%, #10b981 100%);
+}
+.chat-header {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chat-header h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-messages {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.chat-msg.assistant {
+  align-self: flex-start;
+  background: var(--bg3);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.chat-msg.assistant p { margin: 6px 0; }
+.chat-msg.assistant p:first-child { margin-top: 0; }
+.chat-msg.assistant p:last-child { margin-bottom: 0; }
+.chat-msg.assistant ul, .chat-msg.assistant ol { margin: 6px 0 6px 20px; }
+.chat-msg.assistant strong { font-weight: 700; }
+.chat-msg.typing {
+  color: var(--text3);
+  font-style: italic;
+}
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.chat-input-row input {
+  flex: 1;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.chat-input-row input:focus { outline: none; border-color: var(--primary); }
+.chat-input-row button {
+  height: 40px;
+  padding: 0 18px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.chat-input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 24px 0;
+}
+.chat-suggest button {
+  font-size: 0.76rem;
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.chat-suggest button:hover {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* ─── Report PDF download button ─── */
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: var(--transition);
+}
+.btn-download:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* ─── Print (PDF via browser print dialog) ─── */
+@media print {
+  .nav, .hero, .tabs, .tab-content, .chat-panel, .watchlist, #recentSearches,
+  #reportBtn, .search-box, .page-cards, .dashboard-grid, .footer,
+  .btn, #overallScore, #signalCards, #priceChart, #volumeChart,
+  .chart-container, .chart-signal-legend { display: none !important; }
+  body { background: #fff !important; color: #111 !important; }
+  .container { max-width: 100% !important; padding: 0 !important; }
+  .report-card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    break-inside: avoid;
+  }
+  .report-card::before { display: none !important; }
+  .report-body { padding: 20px !important; }
+  .report-footer {
+    border-top: 1px solid #ddd !important;
+    padding: 10px 20px !important;
+    background: #fafafa !important;
+    color: #555 !important;
+  }
+  a { color: #2563eb; text-decoration: none; }
+  .report-body h2, .report-body h3, .report-body h4 { color: #111 !important; }
+  .report-body h3::before { display: none !important; }
+}
+
+/* ─── Currency conversion badge ─── */
+.currency-alt {
+  font-size: 0.78rem;
+  color: var(--text3);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
 /* ─── Hamburger Menu ─── */
 .nav-toggle {
   display: none;

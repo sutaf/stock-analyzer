@@ -1319,6 +1319,117 @@ def health():
     })
 
 
+@app.route("/api/exchange-rate")
+def exchange_rate():
+    """Current USD/KRW exchange rate. Cached for 30 min."""
+    cached = cache_get("fx_usdkrw")
+    if cached:
+        return jsonify(cached)
+    try:
+        stock, df = yf_fetch_with_retry("USDKRW=X", period="5d")
+        if df.empty:
+            return jsonify({"rate": 1400, "source": "fallback"}), 200
+        rate = safe_float(df["Close"].iloc[-1]) or 1400
+        result = {"rate": rate, "source": "yfinance"}
+        cache_set("fx_usdkrw", result)
+        return jsonify(result)
+    except Exception:
+        return jsonify({"rate": 1400, "source": "fallback"}), 200
+
+
+@app.route("/api/chat/<ticker>", methods=["POST"])
+def chat_ticker(ticker):
+    """Conversational Q&A about a specific stock using Claude Haiku 4.5."""
+    if not _ANTHROPIC_AVAILABLE:
+        return jsonify({"error": "Anthropic SDK가 설치되지 않았습니다."}), 500
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다."}), 500
+
+    try:
+        ticker = ticker.strip().upper()
+        data = request.get_json(silent=True) or {}
+        history = data.get("history", [])
+        question = (data.get("question") or "").strip()
+        if not question:
+            return jsonify({"error": "질문이 비어있습니다."}), 400
+
+        # Reuse cached analysis if available
+        is_kr = ticker.isdigit() and len(ticker) == 6
+        analysis_key = f"kr_{ticker}" if is_kr else f"us_{ticker}"
+        analysis = cache_get(analysis_key) or {}
+
+        currency_symbol = "₩" if analysis.get("currency") == "KRW" else "$"
+        context_parts = []
+        if analysis:
+            context_parts.append(f"종목: {analysis.get('name', ticker)} ({analysis.get('ticker', ticker)})")
+            context_parts.append(f"현재가: {currency_symbol}{analysis.get('close')} ({analysis.get('change_pct')}%)")
+            context_parts.append(f"기술점수: {analysis.get('score')}/100 ({analysis.get('grade')})")
+            if analysis.get('sector'):
+                context_parts.append(f"섹터: {analysis.get('sector')} / {analysis.get('industry', '')}")
+            indicators = analysis.get('indicators') or {}
+            context_parts.append(f"지표: RSI={indicators.get('RSI')}, MACD={indicators.get('MACD')}, ADX={indicators.get('ADX')}")
+            reasons = analysis.get('reasons') or []
+            if reasons:
+                context_parts.append("기술적 근거: " + "; ".join(reasons[:5]))
+
+        system_prompt = (
+            "당신은 주식 분석 어시스턴트입니다. 사용자는 특정 종목을 분석 중이며, "
+            "현재 분석 데이터는 아래와 같습니다:\n\n" +
+            "\n".join(context_parts) +
+            "\n\n간결하고 명확하게 한국어로 답변하세요. "
+            "투자 조언 제공 시 '참고용이며 투자 책임은 본인에게 있습니다' 문구를 포함할 것. "
+            "답변은 마크다운으로 작성 가능하며, 필요시 번호 리스트나 표를 사용해도 됩니다."
+        )
+
+        # Build messages: chat history + new question
+        messages = []
+        for turn in history[-10:]:  # keep last 10 turns max
+            if turn.get("role") in ("user", "assistant") and turn.get("content"):
+                messages.append({"role": turn["role"], "content": str(turn["content"])[:4000]})
+        messages.append({"role": "user", "content": question})
+
+        gc.collect()
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1500,
+            system=system_prompt,
+            messages=messages,
+        )
+
+        answer = "".join(b.text for b in response.content if b.type == "text")
+
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+        # Haiku 4.5: $1/M input, $5/M output
+        cost_usd = (input_tokens * 1 + output_tokens * 5) / 1_000_000
+
+        del response
+        del client
+        gc.collect()
+        return jsonify({
+            "answer": answer,
+            "model": "Claude Haiku 4.5",
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            },
+            "cost": {
+                "usd": round(cost_usd, 5),
+                "krw": round(cost_usd * 1400),
+            },
+        })
+    except anthropic.AuthenticationError:
+        return jsonify({"error": "API Key가 유효하지 않습니다."}), 500
+    except anthropic.RateLimitError:
+        return jsonify({"error": "Claude API 요청 제한. 잠시 후 다시 시도해주세요."}), 429
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"채팅 오류: {str(e)}"}), 500
+
+
 @app.route("/")
 def index():
     return render_template("index.html")

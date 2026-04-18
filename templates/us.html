@@ -71,6 +71,7 @@
       <div class="report-header">
         <h3><span>🤖</span> AI 투자 리포트</h3>
         <span class="model-badge" id="reportModelBadge" style="display:none;"></span>
+        <button class="btn-download" id="reportPdfBtn" style="display:none;margin-left:auto;" onclick="downloadReportPdf()">📄 PDF 저장</button>
       </div>
       <div class="report-body">
         <div id="reportLoading" class="loading" style="display: none;">
@@ -81,6 +82,20 @@
         <div id="reportContent"></div>
       </div>
       <div class="report-footer" id="reportFooter" style="display:none;"></div>
+    </div>
+
+    <!-- AI Chat Q&A Panel -->
+    <div id="chatPanel" class="chat-panel" style="display: none;">
+      <div class="chat-header">
+        <h3><span>💬</span> AI에게 물어보기</h3>
+        <span class="model-badge" style="margin-left:auto;">Claude Haiku 4.5</span>
+      </div>
+      <div class="chat-suggest" id="chatSuggest"></div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="예: 지금 매수해도 될까? / 재무상태 어때?" autocomplete="off">
+        <button id="chatSendBtn" onclick="sendChatMessage()">전송</button>
+      </div>
     </div>
 
     <!-- Tabs -->
@@ -291,7 +306,7 @@ async function analyze(ticker) {
   document.getElementById('resultSection').classList.add('hidden');
   document.getElementById('watchlistBtn').style.display = 'none';
 
-  // Reset report section from previous ticker
+  // Reset report + chat panels from previous ticker
   const rs = document.getElementById('reportSection');
   if (rs) rs.style.display = 'none';
   const rc = document.getElementById('reportContent');
@@ -300,6 +315,10 @@ async function analyze(ticker) {
   if (rf) { rf.innerHTML = ''; rf.style.display = 'none'; }
   const rmb = document.getElementById('reportModelBadge');
   if (rmb) { rmb.textContent = ''; rmb.style.display = 'none'; }
+  const pdfBtn = document.getElementById('reportPdfBtn');
+  if (pdfBtn) pdfBtn.style.display = 'none';
+  const cp = document.getElementById('chatPanel');
+  if (cp) cp.style.display = 'none';
 
   try {
     let res = await fetch(`/api/analyze/us/${encodeURIComponent(ticker)}`);
@@ -335,8 +354,16 @@ function renderResult(data) {
   document.getElementById('resultSection').classList.remove('hidden');
   document.getElementById('watchlistBtn').style.display = 'inline-flex';
 
-  // Summary
-  const currency = data.currency === 'KRW' ? formatKRW(data.close) : '$' + formatNumber(data.close);
+  // Show chat panel (seeded with analysis context on the server)
+  initChat(data.ticker);
+
+  // Summary — show USD for US tickers, with KRW alternative when FX rate is fresh
+  const isKRW = data.currency === 'KRW';
+  const priceMain = isKRW ? formatKRW(data.close) : '$' + formatNumber(data.close);
+  const rate = parseFloat(localStorage.getItem('usdkrw') || '0');
+  const krwAlt = (!isKRW && rate > 0 && data.close)
+    ? `<span class="currency-alt">≈ ${formatKRW(data.close * rate)}</span>`
+    : '';
   document.getElementById('summaryGrid').innerHTML = `
     <div class="summary-item">
       <div class="label">종목명</div>
@@ -348,7 +375,7 @@ function renderResult(data) {
     </div>
     <div class="summary-item">
       <div class="label">종가</div>
-      <div class="value">${currency}</div>
+      <div class="value">${priceMain}${krwAlt}</div>
     </div>
     <div class="summary-item">
       <div class="label">변동률</div>
@@ -808,6 +835,7 @@ async function generateReport(ticker) {
     if (data.error) throw new Error(data.error);
 
     content.innerHTML = renderMarkdown(data.report);
+    document.getElementById('reportPdfBtn').style.display = 'inline-flex';
 
     // Model badge
     if (data.model) {
@@ -852,6 +880,121 @@ async function generateReport(ticker) {
 }
 
 // renderMarkdown is provided by common.js
+
+// ─── AI Chat Q&A ───
+let chatHistory = [];
+let chatTicker = null;
+
+function initChat(ticker) {
+  chatTicker = ticker;
+  chatHistory = [];
+  document.getElementById('chatPanel').style.display = 'block';
+  document.getElementById('chatMessages').innerHTML = '';
+  const suggest = document.getElementById('chatSuggest');
+  const suggestions = [
+    '지금 매수해도 될까?',
+    '재무상태가 어때?',
+    '가장 큰 리스크는?',
+    '6개월 후 전망은?',
+  ];
+  suggest.innerHTML = suggestions.map(q =>
+    `<button onclick="askSuggested('${escapeHtml(q)}')">${escapeHtml(q)}</button>`
+  ).join('');
+  document.getElementById('chatInput').onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  };
+}
+
+function askSuggested(q) {
+  document.getElementById('chatInput').value = q;
+  sendChatMessage();
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('chatSendBtn');
+  const messages = document.getElementById('chatMessages');
+  const question = input.value.trim();
+  if (!question || !chatTicker) return;
+
+  input.value = '';
+  sendBtn.disabled = true;
+
+  const userBubble = document.createElement('div');
+  userBubble.className = 'chat-msg user';
+  userBubble.textContent = question;
+  messages.appendChild(userBubble);
+
+  const typing = document.createElement('div');
+  typing.className = 'chat-msg assistant typing';
+  typing.textContent = 'Claude가 답변 중...';
+  messages.appendChild(typing);
+  messages.scrollTop = messages.scrollHeight;
+
+  try {
+    const res = await fetch(`/api/chat/${encodeURIComponent(chatTicker)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        history: chatHistory,
+      }),
+    });
+    const data = await res.json();
+    typing.remove();
+
+    if (data.error) {
+      const errBubble = document.createElement('div');
+      errBubble.className = 'chat-msg assistant';
+      errBubble.style.color = 'var(--danger)';
+      errBubble.textContent = '오류: ' + data.error;
+      messages.appendChild(errBubble);
+    } else {
+      const reply = document.createElement('div');
+      reply.className = 'chat-msg assistant';
+      reply.innerHTML = renderMarkdown(data.answer);
+      messages.appendChild(reply);
+      chatHistory.push({ role: 'user', content: question });
+      chatHistory.push({ role: 'assistant', content: data.answer });
+    }
+    messages.scrollTop = messages.scrollHeight;
+  } catch (err) {
+    typing.remove();
+    const errBubble = document.createElement('div');
+    errBubble.className = 'chat-msg assistant';
+    errBubble.style.color = 'var(--danger)';
+    errBubble.textContent = '네트워크 오류: ' + err.message;
+    messages.appendChild(errBubble);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+// ─── PDF download ───
+function downloadReportPdf() {
+  const origTitle = document.title;
+  const ticker = currentData?.ticker || 'report';
+  document.title = `StockPulse_${ticker}_Report_${new Date().toISOString().slice(0,10)}`;
+  window.print();
+  setTimeout(() => { document.title = origTitle; }, 1000);
+}
+
+// Fetch USD/KRW exchange rate once on page load
+(function loadExchangeRate() {
+  const cached = localStorage.getItem('usdkrw_ts');
+  const now = Date.now();
+  if (cached && now - parseInt(cached) < 30 * 60 * 1000) return;  // 30 min cache
+  fetch('/api/exchange-rate')
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.rate) {
+        localStorage.setItem('usdkrw', String(d.rate));
+        localStorage.setItem('usdkrw_ts', String(now));
+      }
+    })
+    .catch(() => {});
+})();
 
 async function loadCommunity(ticker) {
   document.getElementById('communityLoading').style.display = 'block';
