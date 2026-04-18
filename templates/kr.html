@@ -71,10 +71,13 @@
       </div>
     </div>
 
-    <!-- AI Report button -->
-    <div style="margin-bottom: 20px; text-align: center;">
-      <button class="btn btn-report" id="reportBtn">
-        <span style="font-size: 1.1rem;">🤖</span> AI 투자 리포트 생성
+    <!-- AI Report buttons -->
+    <div class="report-btn-row">
+      <button class="btn btn-report" id="reportBtnBasic" title="빠름 · 저비용 · 지표 기반">
+        <span style="font-size: 1.1rem;">⚡</span> 빠른 리포트
+      </button>
+      <button class="btn btn-report btn-report-deep" id="reportBtnDeep" title="웹검색 포함 · 뉴스/커뮤니티 반영 · 비용 약 10배">
+        <span style="font-size: 1.1rem;">🔎</span> 심층 리포트 (웹검색)
       </button>
     </div>
 
@@ -289,10 +292,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   if (params.get('code')) analyzeKR(params.get('code'));
 
-  // AI Report button
-  document.getElementById('reportBtn').addEventListener('click', () => {
+  // AI Report buttons
+  document.getElementById('reportBtnBasic').addEventListener('click', () => {
     if (!currentData) return;
-    generateReport(currentData.code);
+    generateReport(currentData.code, 'basic');
+  });
+  document.getElementById('reportBtnDeep').addEventListener('click', () => {
+    if (!currentData) return;
+    generateReport(currentData.code, 'deep');
   });
 
   // Watchlist button
@@ -736,14 +743,15 @@ async function loadNews(code) {
   } catch (err) { el.innerHTML = '<p style="color:var(--text3)">뉴스를 불러올 수 없습니다.</p>'; }
 }
 
-async function generateReport(ticker) {
+async function generateReport(ticker, mode = 'basic') {
   const section = document.getElementById('reportSection');
   const loading = document.getElementById('reportLoading');
   const errorBox = document.getElementById('reportError');
   const content = document.getElementById('reportContent');
   const footer = document.getElementById('reportFooter');
   const modelBadge = document.getElementById('reportModelBadge');
-  const btn = document.getElementById('reportBtn');
+  const btnBasic = document.getElementById('reportBtnBasic');
+  const btnDeep = document.getElementById('reportBtnDeep');
 
   section.style.display = 'block';
   loading.style.display = 'block';
@@ -751,12 +759,20 @@ async function generateReport(ticker) {
   content.innerHTML = '';
   footer.style.display = 'none';
   modelBadge.style.display = 'none';
-  btn.disabled = true;
+  btnBasic.disabled = true;
+  btnDeep.disabled = true;
+
+  const loadingMsg = loading.querySelector('p');
+  if (loadingMsg) {
+    loadingMsg.textContent = mode === 'deep'
+      ? 'Claude가 웹 검색 중입니다... (1-2분 소요)'
+      : 'Claude가 데이터를 분석 중입니다...';
+  }
 
   section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
-    const res = await fetch(`/api/report/${encodeURIComponent(ticker)}`);
+    const res = await fetch(`/api/report/${encodeURIComponent(ticker)}?mode=${mode}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
@@ -799,7 +815,8 @@ async function generateReport(ticker) {
     errorBox.style.display = 'block';
   } finally {
     loading.style.display = 'none';
-    btn.disabled = false;
+    btnBasic.disabled = false;
+    btnDeep.disabled = false;
   }
 }
 

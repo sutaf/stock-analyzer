@@ -2436,9 +2436,12 @@ def generate_report(ticker):
 
     try:
         ticker = ticker.strip().upper()
+        mode = (request.args.get("mode") or "basic").lower()
+        if mode not in ("basic", "deep"):
+            mode = "basic"
 
         # Report cache: 1 hour (more aggressive caching since reports cost API calls)
-        cache_key = f"report_{ticker}"
+        cache_key = f"report_{mode}_{ticker}"
         if cache_key in _cache:
             val, ts = _cache[cache_key]
             if _time.time() - ts < 3600:
@@ -2502,9 +2505,11 @@ def generate_report(ticker):
         name = analysis.get('name', ticker)
         tkr = analysis.get('ticker', ticker)
 
-        # Build the prompt — community sentiment comes from live web search
+        # Build the prompt — two modes:
+        #   basic: data-only, no web search (fast + cheap, ~5-10K tokens)
+        #   deep:  with web search (slow + expensive, ~25-40K tokens)
         currency_symbol = "₩" if analysis.get("currency") == "KRW" else "$"
-        prompt = f"""{name} ({tkr}) 투자 분석 리포트를 한국어로 작성해주세요.
+        base_data = f"""{name} ({tkr}) 투자 분석 리포트를 한국어로 작성해주세요.
 
 ## 기술 데이터
 - 현재가: {currency_symbol}{close_price} ({analysis.get('change_pct')}%)
@@ -2522,24 +2527,9 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
 
 ## 정성
 {_format_fundamental_for_report(analysis.get('fundamental', {}))}
+"""
 
----
-
-## 🔎 필수: web_search로 다음을 조사
-- "{tkr} stock news" (최근 뉴스)
-- "{tkr} reddit stocktwits" (커뮤니티 감성)
-- "{tkr} analyst rating" (애널리스트)
-- "{tkr} bearish risks" (반대 의견)
-
-출처와 함께 간결히 인용.
-
----
-
-## 리포트 섹션 (모두 포함)
-
-### 📋 요약
-3-4줄 (웹 검색 반영)
-
+        common_sections = f"""
 ### ✅ 강점
 긍정적 시그널 **3가지** — 반드시 아래 형식처럼 **각 항목을 별도 라인**으로 작성:
 ```
@@ -2560,19 +2550,32 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
 - **R:R**: X:1
 
 ### 🔄 역발상 의견
-점수와 반대되는 관점 **2-3가지** — 위와 동일하게 **각 항목을 별도 라인**으로 번호 매겨 작성. 웹 검색의 소수 의견 활용.
-
-### 📊 커뮤니티 노이즈 평가 (웹 검색 기반)
-0-100 노이즈 점수를 직접 산출하고, 산정 근거를 **서술형 문장 또는 bullet 리스트**로 작성해주세요.
-표(table) 형식은 사용하지 말고, 다음처럼 작성:
-- **노이즈 점수: NN/100 (낮음/중간/높음)**
-- 의견 분산도: ...
-- 볼륨 이상도: ...
-- 정보 품질: ...
-- 감성 일관성: ...
-- **투자 판단 반영**: (한두 문장)
+점수와 반대되는 관점 **2-3가지** — 위와 동일하게 **각 항목을 별도 라인**으로 번호 매겨 작성.
 
 ### 🧭 투자 전략 / 🎬 결론
+"""
+
+        if mode == "deep":
+            prompt = base_data + f"""
+---
+
+## 🔎 필수: web_search로 다음 1회 조사
+- "{tkr} stock news analyst rating" (뉴스·애널리스트 종합)
+
+출처와 함께 간결히 인용.
+
+---
+
+## 리포트 섹션 (모두 포함)
+
+### 📋 요약
+3-4줄 (웹 검색 반영)
+{common_sections}
+### 📊 커뮤니티 노이즈 평가 (웹 검색 기반)
+0-100 노이즈 점수를 산출 — 표 아닌 bullet 리스트로:
+- **노이즈 점수: NN/100 (낮음/중간/높음)**
+- 의견 분산도 / 정보 품질 / 감성 일관성 각 한 줄
+- **투자 판단 반영**: (한두 문장)
 
 ---
 
@@ -2583,6 +2586,23 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
   "⚠️ 이 리포트는 참고용이며 투자 책임은 본인에게 있습니다."
   `<!--META:noise=NN-->` (NN=0-100 정수)
 """
+        else:  # basic
+            prompt = base_data + f"""
+---
+
+## 리포트 섹션 (모두 포함)
+
+### 📋 요약
+위 기술·펀더멘털 데이터를 종합한 3-4줄 요약
+{common_sections}
+---
+
+**원칙:**
+- 가격 숫자 + % 비율
+- 간결하고 데이터 기반
+- 마지막에:
+  "⚠️ 이 리포트는 참고용이며 투자 책임은 본인에게 있습니다."
+"""
 
         # Aggressively free memory before heavy API call (Render free tier is 512MB)
         for k in list(_cache.keys()):
@@ -2590,52 +2610,40 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 del _cache[k]
         gc.collect()
 
-        # Call Claude with web_search + adaptive thinking.
-        # Cost control: each web_search fetch pulls 20-80K tokens of page content
-        # (that counts as *input* on the billing line). Cap at 3 searches and
-        # explicit max_tokens to keep per-report cost predictable (~$0.30-0.50).
-        # Prompt caching (`cache_control` on the system-like user prompt) makes
-        # the repeated instruction block ~10x cheaper on subsequent reports.
+        # basic: no tools, no thinking — fast (~5-10K tokens, ~$0.05)
+        # deep:  web_search + adaptive thinking — thorough (~25-40K tokens, ~$0.30)
         model_id = "claude-sonnet-4-6"
-        tools = [{
-            "type": "web_search_20260209",
-            "name": "web_search",
-            "max_uses": 1,
-        }]
         client = anthropic.Anthropic(api_key=api_key)
-        # Top-level cache_control caches the largest cacheable block automatically.
-        # The prompt itself is ~2K tokens of mostly-static instructions so this
-        # saves ~$0.005 on repeat runs — small but real.
         messages = [{
             "role": "user",
             "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
         }]
-        with client.messages.stream(
-            model=model_id,
-            max_tokens=3000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "low"},
-            tools=tools,
-            messages=messages,
-        ) as stream:
+
+        stream_kwargs = {
+            "model": model_id,
+            "max_tokens": 3000,
+            "messages": messages,
+        }
+        if mode == "deep":
+            stream_kwargs["tools"] = [{
+                "type": "web_search_20260209",
+                "name": "web_search",
+                "max_uses": 1,
+            }]
+            stream_kwargs["thinking"] = {"type": "adaptive"}
+            stream_kwargs["output_config"] = {"effort": "low"}
+
+        with client.messages.stream(**stream_kwargs) as stream:
             response = stream.get_final_message()
 
-        # Handle server-side tool iteration limit (pause_turn) — just once
-        if response.stop_reason == "pause_turn":
-            messages = [
+        # Handle server-side tool iteration limit (pause_turn) — deep mode only
+        if mode == "deep" and response.stop_reason == "pause_turn":
+            stream_kwargs["messages"] = [
                 {"role": "user", "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}]},
                 {"role": "assistant", "content": response.content},
             ]
-            with client.messages.stream(
-                model=model_id,
-                max_tokens=3000,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "low"},
-                tools=tools,
-                messages=messages,
-            ) as stream2:
+            with client.messages.stream(**stream_kwargs) as stream2:
                 response = stream2.get_final_message()
-            continuations += 1
 
         # Concatenate all text blocks (tool_use and thinking blocks are separate)
         report_text = "".join(b.text for b in response.content if b.type == "text")
@@ -2687,7 +2695,8 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 "krw": cost_krw,
             },
             "noise_score": noise_score,
-            "web_search_used": True,
+            "mode": mode,
+            "web_search_used": mode == "deep",
         }
         cache_set(cache_key, result)
         del response
