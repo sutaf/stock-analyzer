@@ -1,4 +1,4 @@
-name: Keep Render service warm
+name: Keep Railway service warm
 
 on:
   schedule:
@@ -15,7 +15,7 @@ jobs:
       - name: Ping /health endpoint
         run: |
           echo "Pinging StockPulse at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          response=$(curl -s -o /tmp/body.txt -w "%{http_code}" --max-time 60 https://stockpulse-cen4.onrender.com/health)
+          response=$(curl -s -o /tmp/body.txt -w "%{http_code}" --max-time 60 https://web-production-4b0fc.up.railway.app/health)
           echo "HTTP status: $response"
           cat /tmp/body.txt
           echo
