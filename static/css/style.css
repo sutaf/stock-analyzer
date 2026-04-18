@@ -631,6 +631,21 @@ a:hover { text-decoration: underline; }
 .chart-signal-legend .sig-item.sell { background: #fee2e2; color: #dc2626; }
 [data-theme="dark"] .chart-signal-legend .sig-item.buy { background: #14532d; color: #86efac; }
 [data-theme="dark"] .chart-signal-legend .sig-item.sell { background: #450a0a; color: #fca5a5; }
+.chart-signal-legend .sig-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.15);
+  color: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+[data-theme="dark"] .chart-signal-legend .sig-count { background: rgba(255, 255, 255, 0.15); }
 
 @media (max-width: 900px) {
   .score-overview { grid-template-columns: 1fr; }
