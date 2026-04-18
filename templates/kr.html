@@ -586,8 +586,8 @@ function renderCharts(chart) {
         { label: 'SMA 60', data: chart.sma60, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false, order: 5 },
         { label: 'BB Upper', data: chart.bb_upper, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: false, order: 6 },
         { label: 'BB Lower', data: chart.bb_lower, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(239,68,68,0.05)', order: 7 },
-        { label: '🟢 매수 시그널', type: 'scatter', data: sigBullData.map((v, i) => v == null ? null : { x: chart.dates[i], y: v }), showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 12, pointBackgroundColor: '#16a34a', pointBorderColor: '#fff', pointBorderWidth: 2, order: 1 },
-        { label: '🔴 매도 시그널', type: 'scatter', data: sigBearData.map((v, i) => v == null ? null : { x: chart.dates[i], y: v }), showLine: false, pointStyle: 'triangle', pointRotation: 180, pointRadius: 9, pointHoverRadius: 12, pointBackgroundColor: '#dc2626', pointBorderColor: '#fff', pointBorderWidth: 2, order: 2 },
+        { label: '🟢 매수 시그널', type: 'line', data: sigBullData, showLine: false, pointStyle: 'triangle', pointRadius: (ctx) => ctx.raw == null ? 0 : 10, pointHoverRadius: (ctx) => ctx.raw == null ? 0 : 13, pointBackgroundColor: '#16a34a', pointBorderColor: '#fff', pointBorderWidth: 2, order: 1 },
+        { label: '🔴 매도 시그널', type: 'line', data: sigBearData, showLine: false, pointStyle: 'triangle', pointRotation: 180, pointRadius: (ctx) => ctx.raw == null ? 0 : 10, pointHoverRadius: (ctx) => ctx.raw == null ? 0 : 13, pointBackgroundColor: '#dc2626', pointBorderColor: '#fff', pointBorderWidth: 2, order: 2 },
       ],
     },
     options: {
