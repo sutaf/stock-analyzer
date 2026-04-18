@@ -380,11 +380,19 @@ def score_stock(indicators):
 
 
 def detect_chart_signals(df, limit=120):
-    """Detect key chart events for annotations."""
+    """Detect key chart events for annotations.
+    Returns list of {date, index, type, label, color, bullish, emoji}
+    where `index` is the position within the sliced (tail) window.
+    """
     df_r = df.tail(limit)
     close = df_r["Close"]
+    high = df_r["High"]
+    low = df_r["Low"]
+    volume = df_r["Volume"]
+
     sma20 = close.rolling(20).mean()
     sma60 = close.rolling(60).mean()
+    sma120 = close.rolling(120).mean()
     bb_mid = sma20
     bb_std = close.rolling(20).std()
     bb_upper = bb_mid + 2 * bb_std
@@ -396,33 +404,99 @@ def detect_chart_signals(df, limit=120):
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
 
+    # MACD
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = macd_line - signal_line
+
+    # Volume MA (20-day)
+    vol_ma = volume.rolling(20).mean()
+
+    # Daily return for big-move detection
+    daily_ret = close.pct_change()
+
     dates = df_r.index.strftime("%Y-%m-%d").tolist()
     signals = []
 
+    def add(i, stype, label, bullish, emoji):
+        color = "#16a34a" if bullish else "#dc2626"
+        signals.append({
+            "date": dates[i],
+            "index": i,
+            "type": stype,
+            "label": label,
+            "color": color,
+            "bullish": bullish,
+            "emoji": emoji,
+            "price": safe_float(close.iloc[i]),
+        })
+
     for i in range(1, len(df_r)):
-        d = dates[i]
-        # Golden/Dead cross (SMA20 vs SMA60)
-        if i > 0 and pd.notna(sma20.iloc[i]) and pd.notna(sma60.iloc[i]) and pd.notna(sma20.iloc[i-1]) and pd.notna(sma60.iloc[i-1]):
+        # Golden / Dead cross (SMA20 × SMA60)
+        if pd.notna(sma20.iloc[i]) and pd.notna(sma60.iloc[i]) and pd.notna(sma20.iloc[i-1]) and pd.notna(sma60.iloc[i-1]):
             if sma20.iloc[i-1] < sma60.iloc[i-1] and sma20.iloc[i] >= sma60.iloc[i]:
-                signals.append({"date": d, "index": i, "type": "golden_cross", "label": "골든크로스", "color": "#16a34a"})
+                add(i, "golden_cross", "골든크로스", True, "⚡")
             elif sma20.iloc[i-1] > sma60.iloc[i-1] and sma20.iloc[i] <= sma60.iloc[i]:
-                signals.append({"date": d, "index": i, "type": "dead_cross", "label": "데드크로스", "color": "#dc2626"})
+                add(i, "dead_cross", "데드크로스", False, "⚡")
 
-        # BB touch
+        # Long-term trend flip (SMA60 × SMA120)
+        if pd.notna(sma60.iloc[i]) and pd.notna(sma120.iloc[i]) and pd.notna(sma60.iloc[i-1]) and pd.notna(sma120.iloc[i-1]):
+            if sma60.iloc[i-1] < sma120.iloc[i-1] and sma60.iloc[i] >= sma120.iloc[i]:
+                add(i, "trend_up", "장기 추세 전환 ↑", True, "🚀")
+            elif sma60.iloc[i-1] > sma120.iloc[i-1] and sma60.iloc[i] <= sma120.iloc[i]:
+                add(i, "trend_down", "장기 추세 전환 ↓", False, "⚠️")
+
+        # MACD crossover
+        if pd.notna(macd_line.iloc[i]) and pd.notna(signal_line.iloc[i]) and pd.notna(macd_line.iloc[i-1]) and pd.notna(signal_line.iloc[i-1]):
+            if macd_line.iloc[i-1] < signal_line.iloc[i-1] and macd_line.iloc[i] >= signal_line.iloc[i]:
+                add(i, "macd_bull", "MACD 매수 전환", True, "📈")
+            elif macd_line.iloc[i-1] > signal_line.iloc[i-1] and macd_line.iloc[i] <= signal_line.iloc[i]:
+                add(i, "macd_bear", "MACD 매도 전환", False, "📉")
+
+        # Bollinger Band touch
         if pd.notna(bb_lower.iloc[i]) and close.iloc[i] <= bb_lower.iloc[i] * 1.005:
-            signals.append({"date": d, "index": i, "type": "bb_lower", "label": "BB 하단 터치", "color": "#16a34a"})
+            add(i, "bb_lower", "BB 하단 터치", True, "⬇️")
         elif pd.notna(bb_upper.iloc[i]) and close.iloc[i] >= bb_upper.iloc[i] * 0.995:
-            signals.append({"date": d, "index": i, "type": "bb_upper", "label": "BB 상단 터치", "color": "#dc2626"})
+            add(i, "bb_upper", "BB 상단 터치", False, "⬆️")
 
-        # RSI extremes
+        # RSI extremes (entry only)
         if pd.notna(rsi.iloc[i]):
-            if rsi.iloc[i] < 30 and (i < 2 or rsi.iloc[i-1] >= 30):
-                signals.append({"date": d, "index": i, "type": "rsi_oversold", "label": "RSI 과매도 진입", "color": "#16a34a"})
-            elif rsi.iloc[i] > 70 and (i < 2 or rsi.iloc[i-1] <= 70):
-                signals.append({"date": d, "index": i, "type": "rsi_overbought", "label": "RSI 과매수 진입", "color": "#dc2626"})
+            if rsi.iloc[i] < 30 and (i < 2 or pd.isna(rsi.iloc[i-1]) or rsi.iloc[i-1] >= 30):
+                add(i, "rsi_oversold", "RSI 과매도 진입", True, "🟢")
+            elif rsi.iloc[i] > 70 and (i < 2 or pd.isna(rsi.iloc[i-1]) or rsi.iloc[i-1] <= 70):
+                add(i, "rsi_overbought", "RSI 과매수 진입", False, "🔴")
 
-    # Keep only most recent 10 signals to avoid clutter
-    return signals[-10:]
+        # Volume spike: 2x+ of 20-day average
+        if pd.notna(vol_ma.iloc[i]) and vol_ma.iloc[i] > 0:
+            ratio = volume.iloc[i] / vol_ma.iloc[i]
+            if ratio >= 2.0:
+                # Direction based on daily return
+                is_bull = pd.notna(daily_ret.iloc[i]) and daily_ret.iloc[i] > 0
+                label = f"거래량 급증 ({ratio:.1f}x)"
+                add(i, "vol_spike", label, bool(is_bull), "💥")
+
+        # Big daily move (±5%+)
+        if pd.notna(daily_ret.iloc[i]):
+            r = float(daily_ret.iloc[i])
+            if r >= 0.05:
+                add(i, "big_up", f"급등 +{r*100:.1f}%", True, "🎯")
+            elif r <= -0.05:
+                add(i, "big_down", f"급락 {r*100:.1f}%", False, "⚠️")
+
+    # Dedup: allow at most one signal per (date, type)
+    seen = set()
+    deduped = []
+    for s in signals:
+        key = (s["date"], s["type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(s)
+
+    # Keep most recent 15 signals to avoid clutter
+    return deduped[-15:]
 
 
 def get_chart_data(df, limit=120):
@@ -1701,8 +1775,8 @@ def chat_ticker(ticker):
         gc.collect()
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=1500,
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
             system=system_prompt,
             messages=messages,
         )
@@ -1711,15 +1785,15 @@ def chat_ticker(ticker):
 
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
-        # Haiku 4.5: $1/M input, $5/M output
-        cost_usd = (input_tokens * 1 + output_tokens * 5) / 1_000_000
+        # Sonnet 4.6: $3/M input, $15/M output
+        cost_usd = (input_tokens * 3 + output_tokens * 15) / 1_000_000
 
         del response
         del client
         gc.collect()
         return jsonify({
             "answer": answer,
-            "model": "Claude Haiku 4.5",
+            "model": "Claude Sonnet 4.6",
             "usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -2517,38 +2591,46 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         gc.collect()
 
         # Call Claude with web_search + adaptive thinking.
-        # Sonnet 4.6: strong quality at 40% the cost of Opus 4.7 for structured
-        # report-style outputs where the web-search grounding does most of the work.
+        # Cost control: each web_search fetch pulls 20-80K tokens of page content
+        # (that counts as *input* on the billing line). Cap at 3 searches and
+        # explicit max_tokens to keep per-report cost predictable (~$0.30-0.50).
+        # Prompt caching (`cache_control` on the system-like user prompt) makes
+        # the repeated instruction block ~10x cheaper on subsequent reports.
         model_id = "claude-sonnet-4-6"
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
-            "max_uses": 5,
+            "max_uses": 3,
         }]
         client = anthropic.Anthropic(api_key=api_key)
-        messages = [{"role": "user", "content": prompt}]
+        # Top-level cache_control caches the largest cacheable block automatically.
+        # The prompt itself is ~2K tokens of mostly-static instructions so this
+        # saves ~$0.005 on repeat runs — small but real.
+        messages = [{
+            "role": "user",
+            "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
+        }]
         with client.messages.stream(
             model=model_id,
-            max_tokens=8000,
+            max_tokens=6000,
             thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
+            output_config={"effort": "low"},
             tools=tools,
             messages=messages,
         ) as stream:
             response = stream.get_final_message()
 
-        # Handle server-side tool iteration limit (pause_turn)
-        continuations = 0
-        while response.stop_reason == "pause_turn" and continuations < 2:
+        # Handle server-side tool iteration limit (pause_turn) — just once
+        if response.stop_reason == "pause_turn":
             messages = [
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}]},
                 {"role": "assistant", "content": response.content},
             ]
             with client.messages.stream(
                 model=model_id,
-                max_tokens=8000,
+                max_tokens=6000,
                 thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
+                output_config={"effort": "low"},
                 tools=tools,
                 messages=messages,
             ) as stream2:
@@ -2572,10 +2654,20 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
                 pass
             report_text = re.sub(r'<!--\s*META:noise=\d+\s*-->', '', report_text).rstrip()
 
-        # Compute cost (Sonnet 4.6: $3/M input, $15/M output)
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
-        cost_usd = (input_tokens * 3 + output_tokens * 15) / 1_000_000
+        # Compute cost (Sonnet 4.6: $3/M input, $15/M output,
+        # cache read $0.30/M, cache write $3.75/M)
+        usage = response.usage
+        input_tokens = usage.input_tokens
+        output_tokens = usage.output_tokens
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+
+        cost_usd = (
+            input_tokens * 3
+            + output_tokens * 15
+            + cache_read * 0.30
+            + cache_write * 3.75
+        ) / 1_000_000
         cost_krw = round(cost_usd * 1400)
 
         result = {
@@ -2586,7 +2678,9 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
             "usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_write,
+                "total_tokens": input_tokens + output_tokens + cache_read + cache_write,
             },
             "cost": {
                 "usd": round(cost_usd, 4),

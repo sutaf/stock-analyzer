@@ -100,7 +100,7 @@
     <div id="chatPanel" class="chat-panel" style="display: none;">
       <div class="chat-header">
         <h3><span>💬</span> AI에게 물어보기</h3>
-        <span class="model-badge" style="margin-left:auto;">Claude Haiku 4.5</span>
+        <span class="model-badge" style="margin-left:auto;">Claude Sonnet 4.6</span>
       </div>
       <div class="chat-suggest" id="chatSuggest"></div>
       <div class="chat-messages" id="chatMessages"></div>
@@ -555,29 +555,49 @@ function renderCharts(chart) {
   const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
   const textColor = isDark ? '#94a3b8' : '#888';
 
+  // Build signal marker datasets
+  const sigBullData = new Array(chart.dates.length).fill(null);
+  const sigBearData = new Array(chart.dates.length).fill(null);
+  const sigMeta = new Array(chart.dates.length).fill(null);
+  (chart.signals || []).forEach(s => {
+    if (s.index == null || s.index >= chart.dates.length) return;
+    const price = s.price != null ? s.price : chart.close[s.index];
+    if (price == null) return;
+    if (s.bullish) sigBullData[s.index] = price * 0.985;
+    else sigBearData[s.index] = price * 1.015;
+    if (!sigMeta[s.index]) sigMeta[s.index] = [];
+    sigMeta[s.index].push(s);
+  });
+
   priceChartInstance = new Chart(document.getElementById('priceChart').getContext('2d'), {
     type: 'line',
     data: {
       labels: chart.dates,
       datasets: [
-        { label: '종가', data: chart.close, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
-        { label: 'SMA 20', data: chart.sma20, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false },
-        { label: 'SMA 60', data: chart.sma60, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false },
-        { label: 'BB Upper', data: chart.bb_upper, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: false },
-        { label: 'BB Lower', data: chart.bb_lower, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(239,68,68,0.05)' },
+        { label: '종가', data: chart.close, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2, order: 3 },
+        { label: 'SMA 20', data: chart.sma20, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false, order: 4 },
+        { label: 'SMA 60', data: chart.sma60, borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], fill: false, order: 5 },
+        { label: 'BB Upper', data: chart.bb_upper, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: false, order: 6 },
+        { label: 'BB Lower', data: chart.bb_lower, borderColor: 'rgba(239,68,68,0.4)', borderWidth: 1, pointRadius: 0, fill: '-1', backgroundColor: 'rgba(239,68,68,0.05)', order: 7 },
+        { label: '🟢 매수 시그널', type: 'scatter', data: sigBullData.map((v, i) => v == null ? null : { x: chart.dates[i], y: v }), showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 12, pointBackgroundColor: '#16a34a', pointBorderColor: '#fff', pointBorderWidth: 2, order: 1 },
+        { label: '🔴 매도 시그널', type: 'scatter', data: sigBearData.map((v, i) => v == null ? null : { x: chart.dates[i], y: v }), showLine: false, pointStyle: 'triangle', pointRotation: 180, pointRadius: 9, pointHoverRadius: 12, pointBackgroundColor: '#dc2626', pointBorderColor: '#fff', pointBorderWidth: 2, order: 2 },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { color: textColor, font: { size: 11 } } }, tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8,
+      plugins: { legend: { labels: { color: textColor, font: { size: 10 }, boxWidth: 14, padding: 8 } }, tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8,
         callbacks: {
           afterBody: function(items) {
             const idx = items[0]?.dataIndex;
-            const sigs = (chart.signals || []).filter(s => s.index === idx);
-            return sigs.map(s => '⚡ ' + s.label);
-          }
+            if (idx == null || !sigMeta[idx]) return [];
+            return sigMeta[idx].map(s => `${s.emoji || '⚡'} ${s.label}`);
+          },
+          label: function(ctx) {
+            if (ctx.raw == null || (typeof ctx.raw === 'object' && ctx.raw.y == null)) return null;
+            return ctx.dataset.label + ': ' + (typeof ctx.raw === 'object' ? ctx.raw.y : ctx.raw);
+          },
         }
       } },
       scales: {
@@ -587,15 +607,18 @@ function renderCharts(chart) {
     },
   });
 
-  // Signal legend
-  const signals = chart.signals || [];
+  // Signal legend — sorted by date (newest first)
+  const signals = (chart.signals || []).slice().sort((a,b) => (a.date < b.date ? 1 : -1));
   const legendEl = document.getElementById('signalLegend');
   if (signals.length > 0) {
-    legendEl.innerHTML = signals.map(s => {
-      const cls = s.color === '#16a34a' ? 'buy' : 'sell';
-      return `<span class="sig-item ${cls}">● ${escapeHtml(s.date)} ${escapeHtml(s.label)}</span>`;
-    }).join('');
-  } else { legendEl.innerHTML = ''; }
+    legendEl.innerHTML = '<div style="width:100%;font-size:0.78rem;color:var(--text3);margin-bottom:6px;">📍 감지된 주요 시그널 (최근순)</div>' +
+      signals.map(s => {
+        const cls = s.bullish ? 'buy' : 'sell';
+        return `<span class="sig-item ${cls}" title="${escapeHtml(s.date)}">${s.emoji || '●'} ${escapeHtml(s.date)} ${escapeHtml(s.label)}</span>`;
+      }).join('');
+  } else {
+    legendEl.innerHTML = '<p style="color:var(--text3);font-size:0.78rem;">최근 기간에 감지된 주요 시그널이 없습니다.</p>';
+  }
 
   const volColors = chart.close.map((c, i) => i === 0 ? 'rgba(37,99,235,0.5)' : (c >= chart.close[i-1] ? 'rgba(22,163,74,0.5)' : 'rgba(220,38,38,0.5)'));
   volumeChartInstance = new Chart(document.getElementById('volumeChart').getContext('2d'), {
