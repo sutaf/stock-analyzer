@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}ETF 섹터 스캔 - StockPulse{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding:40px 24px 36px;">
+  <h1 style="font-size:2rem;">📊 ETF 섹터 스캔</h1>
+  <p class="subtitle">시장 전체를 한 눈에: 주요 ETF의 3개월 수익률과 추세 지표</p>
+</section>
+
+<div class="container">
+  <div id="etfLoading" class="loading" style="padding:60px 0;">
+    <div class="spinner"></div>
+    <p style="margin-top:12px;">ETF 데이터 스캔 중...</p>
+  </div>
+  <div id="etfError" class="error-msg" style="display:none;"></div>
+  <div id="etfContent"></div>
+</div>
+
+<script>
+const GROUP_LABELS = {
+  US_Market: '🇺🇸 미국 대표 지수',
+  US_Sector: '🇺🇸 섹터별 ETF',
+  US_Theme: '🇺🇸 테마 ETF',
+  KR_Market: '🇰🇷 한국 대표 지수',
+};
+
+(async function loadETFs() {
+  const loading = document.getElementById('etfLoading');
+  const errorBox = document.getElementById('etfError');
+  const content = document.getElementById('etfContent');
+  try {
+    const res = await fetch('/api/etfs');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    loading.style.display = 'none';
+    let html = '';
+    for (const [group, items] of Object.entries(data)) {
+      if (!items || items.length === 0) continue;
+      html += `<section style="margin-bottom:36px;">
+        <h2 style="font-size:1.25rem;font-weight:800;margin-bottom:14px;">${GROUP_LABELS[group] || group}</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">`;
+
+      // Sort by 3mo return desc
+      items.sort((a, b) => (b.return_3mo || 0) - (a.return_3mo || 0));
+
+      for (const it of items) {
+        const isKR = it.ticker.includes('.KS') || it.ticker.includes('.KQ');
+        const curr = isKR ? '₩' : '$';
+        const changeCls = it.change_pct >= 0 ? 'change-up' : 'change-down';
+        const retCls = it.return_3mo >= 0 ? 'change-up' : 'change-down';
+        const rsiColor = it.rsi == null ? 'var(--text3)' : (it.rsi > 70 ? '#dc2626' : it.rsi < 30 ? '#16a34a' : 'var(--text2)');
+        const linkHref = isKR ? `/kr?code=${encodeURIComponent(it.ticker.replace('.KS','').replace('.KQ',''))}` : `/us?ticker=${encodeURIComponent(it.ticker)}`;
+        html += `<a href="${linkHref}" style="display:block;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-decoration:none;transition:var(--transition);box-shadow:var(--shadow);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="color:var(--text);">${escapeHtml(it.ticker)}</strong>
+            <span style="font-size:0.75rem;color:${rsiColor};font-weight:700;">RSI ${it.rsi != null ? it.rsi.toFixed(0) : '-'}</span>
+          </div>
+          <div style="font-size:0.85rem;color:var(--text2);margin-bottom:10px;">${escapeHtml(it.name)}</div>
+          <div style="display:flex;justify-content:space-between;font-size:0.88rem;margin-bottom:4px;">
+            <span style="color:var(--text3);">현재가</span>
+            <span style="font-weight:700;color:var(--text);">${curr}${formatNumber(it.close)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:4px;">
+            <span style="color:var(--text3);">일간</span>
+            <span class="${changeCls}">${it.change_pct >= 0 ? '+' : ''}${it.change_pct}%</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:0.82rem;">
+            <span style="color:var(--text3);">3개월</span>
+            <span class="${retCls}" style="font-weight:700;">${it.return_3mo >= 0 ? '+' : ''}${it.return_3mo}%</span>
+          </div>
+        </a>`;
+      }
+      html += '</div></section>';
+    }
+    content.innerHTML = html || '<p style="color:var(--text3);">ETF 데이터를 가져올 수 없습니다.</p>';
+  } catch (err) {
+    loading.style.display = 'none';
+    errorBox.textContent = err.message;
+    errorBox.style.display = 'block';
+  }
+})();
+</script>
+{% endblock %}

@@ -1319,6 +1319,309 @@ def health():
     })
 
 
+# ─── Peers / competitors (predefined sector groups) ───
+_PEER_GROUPS_US = {
+    # Tech Mega
+    "AAPL": ["MSFT", "GOOGL", "META", "AMZN", "NVDA"],
+    "MSFT": ["AAPL", "GOOGL", "META", "AMZN", "ORCL"],
+    "GOOGL": ["AAPL", "MSFT", "META", "AMZN", "BIDU"],
+    "META": ["GOOGL", "SNAP", "PINS", "AAPL", "MSFT"],
+    "AMZN": ["MSFT", "GOOGL", "BABA", "WMT", "SHOP"],
+    # Chips
+    "NVDA": ["AMD", "AVGO", "INTC", "TSM", "QCOM"],
+    "AMD": ["NVDA", "INTC", "QCOM", "AVGO", "MRVL"],
+    "INTC": ["AMD", "NVDA", "TSM", "QCOM", "MU"],
+    "TSM": ["NVDA", "AMD", "QCOM", "ASML", "INTC"],
+    "AVGO": ["NVDA", "AMD", "QCOM", "MRVL", "INTC"],
+    "ASML": ["AMAT", "KLAC", "LRCX", "TSM", "ARM"],
+    "MU": ["WDC", "STX", "ADI", "TXN", "NVDA"],
+    # EV / Auto
+    "TSLA": ["F", "GM", "RIVN", "LCID", "NIO"],
+    "RIVN": ["TSLA", "LCID", "NIO", "F", "GM"],
+    "F": ["GM", "TSLA", "STLA", "TM", "HMC"],
+    # Fintech / Payments
+    "V": ["MA", "AXP", "PYPL", "SQ", "DFS"],
+    "MA": ["V", "AXP", "PYPL", "SQ", "FI"],
+    "PYPL": ["V", "MA", "SQ", "AFRM", "ADYEY"],
+    # Streaming / Entertainment
+    "NFLX": ["DIS", "WBD", "PARA", "SPOT", "ROKU"],
+    "DIS": ["NFLX", "WBD", "PARA", "CMCSA", "T"],
+    # Consumer
+    "KO": ["PEP", "KDP", "MNST", "STZ", "BUD"],
+    "PEP": ["KO", "KDP", "MNST", "STZ", "MDLZ"],
+    "MCD": ["SBUX", "YUM", "CMG", "DPZ", "QSR"],
+    "SBUX": ["MCD", "DPZ", "YUM", "CMG", "QSR"],
+    "WMT": ["COST", "TGT", "AMZN", "KR", "DG"],
+    # Finance
+    "JPM": ["BAC", "WFC", "C", "GS", "MS"],
+    "BAC": ["JPM", "WFC", "C", "USB", "TFC"],
+    "BRK-B": ["JPM", "BAC", "WFC", "V", "MA"],
+    # Energy
+    "XOM": ["CVX", "COP", "SHEL", "BP", "EOG"],
+    "CVX": ["XOM", "COP", "SHEL", "BP", "EOG"],
+    # Healthcare
+    "JNJ": ["PFE", "MRK", "ABBV", "LLY", "BMY"],
+    "LLY": ["JNJ", "MRK", "PFE", "ABBV", "NVO"],
+    "UNH": ["CVS", "CI", "ELV", "HUM", "ANTM"],
+    # Industrials
+    "BA": ["LMT", "NOC", "RTX", "GD", "AIR.PA"],
+    "LMT": ["NOC", "RTX", "GD", "BA", "HII"],
+    # Retail / E-commerce
+    "SHOP": ["AMZN", "MELI", "BABA", "SE", "PDD"],
+    "NKE": ["ADDYY", "LULU", "UA", "DECK", "SKX"],
+    # AI / Cloud
+    "ORCL": ["MSFT", "CRM", "SAP", "IBM", "SNOW"],
+    "CRM": ["ORCL", "SAP", "NOW", "WDAY", "HUBS"],
+    "NOW": ["CRM", "ORCL", "WDAY", "SNOW", "DDOG"],
+    "PLTR": ["SNOW", "DDOG", "CRM", "NOW", "MDB"],
+    "IBM": ["ORCL", "HPE", "CSCO", "MSFT", "CRM"],
+}
+
+_PEER_GROUPS_KR = {
+    "005930": ["000660", "035420", "051910", "207940", "068270"],  # Samsung
+    "000660": ["005930", "042700", "000270", "373220", "035720"],  # SK Hynix
+    "035420": ["035720", "352820", "018260", "259960", "112040"],  # Naver
+    "035720": ["035420", "352820", "018260", "293490", "251270"],  # Kakao
+    "373220": ["006400", "207940", "051910", "005930", "003670"],  # LG Energy
+    "006400": ["373220", "207940", "051910", "005930", "003670"],  # Samsung SDI
+    "207940": ["068270", "005930", "000660", "035420", "373220"],  # Samsung BIO
+    "068270": ["207940", "196170", "326030", "302440", "000100"],  # Celltrion
+    "051910": ["005930", "000660", "051915", "096770", "010950"],  # LG Chem
+    "005380": ["000270", "012330", "005387", "005389", "005385"],  # Hyundai
+    "000270": ["005380", "012330", "005387", "005389", "005385"],  # Kia
+    "055550": ["105560", "086790", "316140", "024110", "138930"],  # Shinhan
+    "105560": ["055550", "086790", "316140", "024110", "138930"],  # KB
+}
+
+
+@app.route("/etf")
+def etf_page():
+    return render_template("etf.html")
+
+
+@app.route("/api/peers/<ticker>")
+def peers_api(ticker):
+    """Return simple OHLC + score snapshot for 3-5 peer tickers."""
+    try:
+        ticker = ticker.strip().upper()
+        is_kr = ticker.isdigit() and len(ticker) == 6
+        peer_list = (_PEER_GROUPS_KR if is_kr else _PEER_GROUPS_US).get(ticker, [])[:5]
+        if not peer_list:
+            return jsonify({"peers": [], "message": "해당 종목의 피어 데이터가 없습니다."})
+
+        cache_key = f"peers_{ticker}"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        results = []
+        for sym in peer_list:
+            try:
+                yf_sym = get_kr_ticker(sym) if is_kr else sym
+                stock, df = yf_fetch_with_retry(yf_sym, period="3mo")
+                if df.empty:
+                    continue
+                info = yf_get_info_safe(stock)
+                ind = compute_indicators(df)
+                score, grade, _ = score_stock(ind)
+                close_price = safe_float(df["Close"].iloc[-1])
+                prev = safe_float(df["Close"].iloc[-2]) if len(df) > 1 else close_price
+                change_pct = round((close_price - prev) / prev * 100, 2) if prev else 0
+                results.append({
+                    "ticker": sym,
+                    "name": info.get("shortName") or sym,
+                    "close": close_price,
+                    "change_pct": change_pct,
+                    "score": score,
+                    "grade": grade,
+                    "currency": "KRW" if is_kr else info.get("currency", "USD"),
+                })
+                _time.sleep(0.15)
+            except Exception:
+                continue
+        result = {"peers": results, "base": ticker}
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── ETF / Sector scan ───
+_ETF_GROUPS = {
+    "US_Market": [
+        {"ticker": "SPY", "name": "S&P 500"},
+        {"ticker": "QQQ", "name": "Nasdaq 100"},
+        {"ticker": "DIA", "name": "Dow Jones"},
+        {"ticker": "IWM", "name": "Russell 2000"},
+    ],
+    "US_Sector": [
+        {"ticker": "XLK", "name": "Technology"},
+        {"ticker": "XLF", "name": "Financials"},
+        {"ticker": "XLV", "name": "Healthcare"},
+        {"ticker": "XLE", "name": "Energy"},
+        {"ticker": "XLI", "name": "Industrials"},
+        {"ticker": "XLY", "name": "Consumer Discretionary"},
+        {"ticker": "XLP", "name": "Consumer Staples"},
+        {"ticker": "XLU", "name": "Utilities"},
+        {"ticker": "XLB", "name": "Materials"},
+        {"ticker": "XLRE", "name": "Real Estate"},
+        {"ticker": "XLC", "name": "Communication"},
+    ],
+    "US_Theme": [
+        {"ticker": "SOXX", "name": "반도체"},
+        {"ticker": "ARKK", "name": "ARK Innovation"},
+        {"ticker": "GLD", "name": "Gold"},
+        {"ticker": "TLT", "name": "장기 국채"},
+        {"ticker": "VNQ", "name": "REIT"},
+    ],
+    "KR_Market": [
+        {"ticker": "069500.KS", "name": "KODEX 200"},
+        {"ticker": "229200.KS", "name": "KODEX 코스닥150"},
+        {"ticker": "114800.KS", "name": "KODEX 인버스"},
+    ],
+}
+
+
+@app.route("/api/etfs")
+def etfs_api():
+    """Scan predefined ETFs with current price and simple trend."""
+    cache_key = "etfs_all"
+    cached = cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+    try:
+        groups = {}
+        for group_name, items in _ETF_GROUPS.items():
+            out = []
+            for item in items:
+                try:
+                    stock, df = yf_fetch_with_retry(item["ticker"], period="3mo")
+                    if df.empty:
+                        continue
+                    close_price = safe_float(df["Close"].iloc[-1])
+                    prev = safe_float(df["Close"].iloc[-2]) if len(df) > 1 else close_price
+                    change_pct = round((close_price - prev) / prev * 100, 2) if prev else 0
+                    # 3-month return
+                    start = safe_float(df["Close"].iloc[0])
+                    ret_3mo = round((close_price - start) / start * 100, 2) if start else 0
+                    ind = compute_indicators(df)
+                    out.append({
+                        "ticker": item["ticker"],
+                        "name": item["name"],
+                        "close": close_price,
+                        "change_pct": change_pct,
+                        "return_3mo": ret_3mo,
+                        "rsi": safe_float(ind.get("RSI")),
+                    })
+                    _time.sleep(0.15)
+                except Exception:
+                    continue
+            groups[group_name] = out
+        cache_set(cache_key, groups)
+        return jsonify(groups)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Backtesting ───
+@app.route("/api/backtest/<ticker>")
+def backtest_api(ticker):
+    """Simple buy-and-hold backtest with benchmark comparison.
+    Query params: period=1y|2y|5y|10y (default 1y)
+    """
+    try:
+        ticker = ticker.strip().upper()
+        is_kr = ticker.isdigit() and len(ticker) == 6
+        period = request.args.get("period", "1y")
+        if period not in ("1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"):
+            period = "1y"
+
+        yf_ticker = get_kr_ticker(ticker) if is_kr else ticker
+        cache_key = f"backtest_{yf_ticker}_{period}"
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        stock, df = yf_fetch_with_retry(yf_ticker, period=period)
+        if df.empty and is_kr:
+            yf_ticker = f"{ticker}.KQ"
+            stock, df = yf_fetch_with_retry(yf_ticker, period=period)
+
+        if df.empty:
+            return jsonify({"error": f"'{ticker}' 데이터를 찾을 수 없습니다."}), 404
+
+        start_price = safe_float(df["Close"].iloc[0])
+        end_price = safe_float(df["Close"].iloc[-1])
+        start_date = df.index[0].strftime("%Y-%m-%d")
+        end_date = df.index[-1].strftime("%Y-%m-%d")
+        total_return = round((end_price - start_price) / start_price * 100, 2) if start_price else 0
+
+        # CAGR
+        days = (df.index[-1] - df.index[0]).days
+        years = max(days / 365.25, 0.01)
+        cagr = round(((end_price / start_price) ** (1 / years) - 1) * 100, 2) if start_price else 0
+
+        # Max drawdown
+        close = df["Close"]
+        cummax = close.cummax()
+        drawdown = (close - cummax) / cummax
+        max_dd = round(float(drawdown.min()) * 100, 2)
+
+        # Volatility (annualized)
+        returns = close.pct_change().dropna()
+        volatility = round(float(returns.std()) * (252 ** 0.5) * 100, 2)
+
+        # Benchmark comparison (SPY for US, KODEX 200 for KR)
+        bench_ticker = "069500.KS" if is_kr else "SPY"
+        bench_return = None
+        bench_name = "KODEX 200" if is_kr else "S&P 500 (SPY)"
+        try:
+            _, bench_df = yf_fetch_with_retry(bench_ticker, period=period)
+            if not bench_df.empty:
+                b_start = safe_float(bench_df["Close"].iloc[0])
+                b_end = safe_float(bench_df["Close"].iloc[-1])
+                bench_return = round((b_end - b_start) / b_start * 100, 2) if b_start else 0
+        except Exception:
+            pass
+
+        # Sample equity curve (50 points max)
+        step = max(len(df) // 50, 1)
+        sampled = df.iloc[::step]
+        curve = [
+            {"date": d.strftime("%Y-%m-%d"), "price": safe_float(p)}
+            for d, p in zip(sampled.index, sampled["Close"])
+        ]
+
+        result = {
+            "ticker": ticker,
+            "period": period,
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_price": start_price,
+            "end_price": end_price,
+            "total_return": total_return,
+            "cagr": cagr,
+            "max_drawdown": max_dd,
+            "volatility": volatility,
+            "benchmark": {
+                "ticker": bench_ticker,
+                "name": bench_name,
+                "return": bench_return,
+            },
+            "alpha": round(total_return - bench_return, 2) if bench_return is not None else None,
+            "curve": curve,
+            "days": days,
+            "currency": "KRW" if is_kr else "USD",
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/exchange-rate")
 def exchange_rate():
     """Current USD/KRW exchange rate. Cached for 30 min."""

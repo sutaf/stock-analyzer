@@ -21,6 +21,7 @@
         <a href="/us" {% if request.path == '/us' %}class="active"{% endif %}>미국주식</a>
         <a href="/kr" {% if request.path == '/kr' %}class="active"{% endif %}>한국주식</a>
         <a href="/compare" {% if request.path == '/compare' %}class="active"{% endif %}>종목비교</a>
+        <a href="/etf" {% if request.path == '/etf' %}class="active"{% endif %}>ETF스캔</a>
         <a href="/advanced" {% if request.path == '/advanced' %}class="active"{% endif %}>고급분석</a>
         <a href="/guide" {% if request.path == '/guide' %}class="active"{% endif %}>도움말</a>
         <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙</button>
