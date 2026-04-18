@@ -639,8 +639,8 @@ function renderCharts(chart) {
     if (bearN > 0) sigBearData[i] = price * (1 + baseOff + stepOff * (bearN - 1));
   });
 
-  // Tiny count badge when 2+ signals stack on same date/side. Triangles stay simple;
-  // full detail is in the tooltip and the legend below the chart.
+  // Tiny count badge when 2+ signals stack on same date/side. Badge sits just
+  // outside the triangle (scales with triangle size) so they never overlap.
   const signalLabelPlugin = {
     id: 'signalLabels',
     afterDatasetsDraw(c) {
@@ -655,17 +655,20 @@ function renderCharts(chart) {
         meta.data.forEach((pt, i) => {
           const grp = groups[i];
           if (!grp || grp.length < 2 || pt.skip) return;
-          const badgeX = pt.x + 10;
-          const badgeY = above ? pt.y - 2 : pt.y + 2;
+          const triR = 10 + (grp.length - 1) * 2;
+          const badgeR = 8;
+          // Place badge diagonally outward from the triangle apex so it sits clear.
+          const badgeX = pt.x + triR + badgeR - 2;
+          const badgeY = above ? pt.y - triR - 2 : pt.y + triR + 2;
           ctx.beginPath();
-          ctx.arc(badgeX, badgeY, 7, 0, Math.PI * 2);
+          ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
           ctx.fillStyle = above ? '#dc2626' : '#16a34a';
           ctx.fill();
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 1.5;
           ctx.stroke();
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 9px system-ui, sans-serif';
+          ctx.font = 'bold 10px system-ui, sans-serif';
           ctx.fillText(String(grp.length), badgeX, badgeY + 0.5);
         });
       };
