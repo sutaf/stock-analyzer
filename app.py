@@ -2600,7 +2600,7 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         tools = [{
             "type": "web_search_20260209",
             "name": "web_search",
-            "max_uses": 3,
+            "max_uses": 1,
         }]
         client = anthropic.Anthropic(api_key=api_key)
         # Top-level cache_control caches the largest cacheable block automatically.
@@ -2612,7 +2612,7 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
         }]
         with client.messages.stream(
             model=model_id,
-            max_tokens=6000,
+            max_tokens=3000,
             thinking={"type": "adaptive"},
             output_config={"effort": "low"},
             tools=tools,
@@ -2628,7 +2628,7 @@ SMA20 {sma20}, SMA60 {sma60}, SMA120 {sma120}, BB상단 {bb_upper}, BB하단 {bb
             ]
             with client.messages.stream(
                 model=model_id,
-                max_tokens=6000,
+                max_tokens=3000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": "low"},
                 tools=tools,
